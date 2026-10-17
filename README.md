@@ -1,0 +1,43 @@
+﻿# ETS2 GPS for Windows
+
+The Windows version of [ETS2 GPS](https://github.com/johnevansau320/ETS2GPS) (the Android route-GPS for Euro Truck Simulator 2 with ProMods and other map mods). Licensed under GPL-3.0 (see LICENSE).
+
+A native Windows (.NET 8 WPF) version of the ETS2 GPS Android app, and fully standalone: **one exe, nothing else to install or
+start** (no Python, no companion). It has the road map with route, turn-by-turn guidance with voice, the lane panel, waypoints,
+saved trips, POIs, hill / fuel / rest alerts, job auto-detect, the trip screen, and an option to avoid ferries.
+
+It runs on the same PC as the game:
+* telemetry comes straight from the TruckSim GPS Telemetry Server (default `127.0.0.1:31377`);
+* the road map is built by the app itself from your game and active mods (the map builder is a C# port of the old Python
+  companion and produces the identical file). The first start, or the first after a game / DLC / mod change, takes about
+  10 seconds; the result is kept in `%APPDATA%\ETS2-GPS\etsmap.bin`. If the TruckSim server is not running the saved map is
+  used as is;
+* voice uses Windows speech on the default audio device (your headset);
+* a small built-in web server (port 31378, same as the old companion) lets the Android tablet app, a browser / iPad
+  (`http://<pc-ip>:31378/`) and the lane overlay window use this PC: map download, voice on the PC, lane panel, telemetry.
+  If that port is taken (for example the old Python companion is still running) the server is simply off and a message says so.
+
+Build: `build.ps1` (single self-contained exe in `publish\`, about 64 MB). Install: `install.ps1` (`-Autostart` also starts it at
+login). The app icon is `Assets\app.ico`, made from `Assets\icon-source.jpg` by `make_icon.ps1`.
+
+Stay on top of other apps: the **Pin on top** button (or the `P` key, or Settings) keeps the window above everything else; the
+choice is remembered. `--topmost` forces it for one run. ETS2 must be windowed / borderless for any window to appear above the game.
+
+Window: no title bar. Drag the green bar to move it (double-click maximises), drag the edges to resize; the whole UI scales
+from 0.2x to 1x of a 1920x1080 layout. Minimise / maximise / close are the small buttons at the top right of the green bar.
+
+Keys: `+` / `-` zoom, `T` trip screen, `P` stay on top, `Esc` recentre / close trip screen, `F11` maximise.
+Mouse: drag the map to look around (Recentre returns), wheel to zoom, double-click resets zoom, right-click a point for
+Navigate here / Add as waypoint / Avoid road here.
+
+Settings (the gear): route type, avoid ferries and car trains, window opacity, voice, telemetry address, built-in server on/off
+and port, distance scale. `Save + rebuild map` forces a new map build.
+
+Command line (testing): `--config file.json`, `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
+
+## Requirements and build
+
+* Windows 10/11, Euro Truck Simulator 2 (Steam) and the [TruckSim GPS Telemetry Server](https://github.com/TruckSim-GPS/trucksim-gps-server) running next to it.
+* To build: the .NET 8 SDK, then `.\build.ps1` (single self-contained `publish\Ets2Gps.exe`) and `.\install.ps1` (Start Menu shortcut, optional autostart). GitHub Actions builds the exe on every push; releases carry a ready-made exe.
+* The `web` folder is the browser / tablet version served by the built-in server; it is embedded in the exe.
+* Map and file formats follow the MIT-licensed [ts-map](https://github.com/dariowouters/ts-map) project.

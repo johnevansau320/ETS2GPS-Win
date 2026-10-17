@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Ets2Gps</AssemblyName>
+    <RootNamespace>Ets2Gps</RootNamespace>
+    <Version>0.1.0</Version>
+    <Product>ETS2 GPS</Product>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <WebDir Condition="Exists('web')">web</WebDir>
+    <WebDir Condition="'$(WebDir)' == ''">..\web</WebDir>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- the web app (for browsers / tablets) travels inside the exe and is served by the built-in server -->
+    <EmbeddedResource Include="$(WebDir)\*.js;$(WebDir)\*.html" LogicalName="web/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Speech" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
+
+
