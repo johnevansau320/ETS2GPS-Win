@@ -123,6 +123,12 @@ public sealed class BuiltInServer : IDisposable
                         await f.CopyToAsync(s);
                         return;
                     }
+                case "/assets.bin":
+                    {
+                        if (!File.Exists(MapService.AssetsPath)) { await Reply(s, 404, "text/plain", Encoding.ASCII.GetBytes("no logos / flags yet")); return; }
+                        await Reply(s, 200, "application/octet-stream", await File.ReadAllBytesAsync(MapService.AssetsPath));
+                        return;
+                    }
                 case "/say":
                     {
                         string text = method == "POST" ? Encoding.UTF8.GetString(body) : ParseQuery(query, "text");

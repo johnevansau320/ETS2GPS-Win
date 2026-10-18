@@ -12,14 +12,23 @@ namespace Ets2Gps.MapBuilder;
 public static class BuildMap
 {
     /// <summary>Changes whenever the builder's output could change (it triggers an automatic rebuild).</summary>
-    public const int FormatVersion = 15;
+    public const int FormatVersion = 17;
     /// <summary>The binary layout the app reads.</summary>
-    public const int FileVersion = 8;
+    public const int FileVersion = 9;
 
     const double LaneW = 4.5;
     static readonly Dictionary<uint, int> SpawnPoi = new() { [3] = 1, [4] = 2, [5] = 3, [6] = 4, [7] = 5, [8] = 8, [15] = 6, [16] = 7 };
     static readonly UInt128 HudParking = Sii.StrToToken("hud_parking");
     static readonly string[] NotRoundaboutWords = { "gas", "plaza", "parking", "depot", "service", "station", "tshape", "truckstop" };
+
+    /// <summary>Overlay token such as "al_sh2", "at_e45", "b_a1" -> the text of the road-number shield ("SH 2", "E45", "A1"), or null for other overlays.</summary>
+    static string? RoadLabelText(string tok)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(tok, "^[a-z]{1,3}_([a-z]{0,3})([0-9]{1,4})([a-z]?)$");
+        if (!m.Success || tok.StartsWith("border_")) return null;
+        string letters = m.Groups[1].Value.ToUpperInvariant();
+        return letters + (letters.Length >= 2 ? " " : "") + m.Groups[2].Value + m.Groups[3].Value;
+    }
 
     // ------------------------------------------------------------------------------ geometry --
 
@@ -344,6 +353,8 @@ public static class BuildMap
         public List<(ulong Company, ulong City, double X, double Z)> Companies = new();
         public List<(ulong Port, ulong Link, ulong Node, bool Train, double X, double Z)> Ferries = new();
         public List<(int Type, double X, double Z)> Overlays = new();
+        public List<(ulong Tok, double X, double Z)> RoadLabels = new();
+        public List<(List<ulong> Nodes, uint Color)> Areas = new();
     }
 
     static Collected CollectSectors(FileSystem fs, Defs defs, Action<string> log, Action<double>? progress)
@@ -384,6 +395,8 @@ public static class BuildMap
                 col.Companies.AddRange(s.Companies);
                 col.Ferries.AddRange(s.Ferries);
                 col.Overlays.AddRange(s.Overlays);
+                col.RoadLabels.AddRange(s.RoadLabels);
+                col.Areas.AddRange(s.Areas);
             }
         }
         if (skipped > 0) log($"  ! {skipped} sectors use an unsupported (very old) format and were skipped");
@@ -398,7 +411,7 @@ public static class BuildMap
     }
 
     /// <summary>Builds etsmap.bin (zlib-compressed) into outPath.</summary>
-    public static void Build(FileSystem fs, string outPath, Action<string> log, Action<string, double>? progress = null)
+    public static void Build(FileSystem fs, string outPath, Action<string> log, Action<string, double>? progress = null, string? assetsPath = null)
     {
         var t0 = DateTime.UtcNow;
         progress?.Invoke("Reading the game's road definitions…", 0);
@@ -614,6 +627,7 @@ public static class BuildMap
         foreach (var (cid, city, x, z) in comp.Values) { Str(cid); Str(city); w.Write(F32(x)); w.Write(F32(z)); }
         log($"{comp.Count} company locations");
         pois.AddRange(col.Overlays);
+        foreach (var (_, _, _, train, fx, fz) in col.Ferries) pois.Add((train ? 10 : 9, fx, fz));   // ferry and car-train terminals
         var grid = new Dictionary<(int, long, long), List<(double X, double Z)>>();
         var uniq = new List<(int T, double X, double Z)>();
         foreach (var (t, x, z) in pois)
@@ -639,6 +653,69 @@ public static class BuildMap
         w.Write((uint)laneRows.Count);
         foreach (var (gi, n, m) in laneRows) { w.Write((uint)gi); w.Write((byte)n); w.Write((ushort)m); }
         log($"lane data for {laneRows.Count} junction paths");
+
+        // file version 9: names shown for companies, road-number shields, and the map areas (lots, yards, green patches)
+        var usedCo = comp.Values.Select(v => v.Item1).Distinct().Where(id => defs.CompanyNames.ContainsKey(id)).ToList();
+        w.Write((uint)usedCo.Count);
+        foreach (var id in usedCo) { Str(id); Str(defs.CompanyNames[id]); }
+        var labels = new List<(string Text, double X, double Z)>();
+        var labelGrid = new HashSet<(string, long, long)>();
+        foreach (var (tok, x, z) in col.RoadLabels.OrderBy(l => l.Tok).ThenBy(l => l.X).ThenBy(l => l.Z))
+        {
+            if (tok > ulong.MaxValue) continue;
+            string? text = RoadLabelText(Sii.TokenToStr(tok));
+            if (text == null) continue;
+            long gx = (long)Math.Floor(x / 600), gz = (long)Math.Floor(z / 600);
+            bool dup = false;
+            for (int ddx = -1; ddx <= 1 && !dup; ddx++) for (int ddz = -1; ddz <= 1 && !dup; ddz++) dup = labelGrid.Contains((text, gx + ddx, gz + ddz));
+            if (dup) continue;
+            labelGrid.Add((text, gx, gz)); labels.Add((text, x, z));
+        }
+        w.Write((uint)labels.Count);
+        foreach (var (text, x, z) in labels) { Str(text); w.Write(F32(x)); w.Write(F32(z)); }
+        var areas = new List<(uint Color, List<(float X, float Z)> Pts)>();
+        foreach (var (anodes, color) in col.Areas)
+        {
+            var pts = new List<(float X, float Z)>();
+            foreach (var u in anodes) if (nodes.TryGetValue(u, out var nd)) pts.Add((F32(nd.X), F32(nd.Z)));
+            if (pts.Count >= 3 && color <= 3) areas.Add((color, pts));
+        }
+        w.Write((uint)areas.Count);
+        foreach (var (color, pts) in areas)
+        {
+            w.Write((byte)color); w.Write((ushort)pts.Count);
+            foreach (var (x, z) in pts) { w.Write(x); w.Write(z); }
+        }
+        log($"{usedCo.Count} company names, {labels.Count} road numbers, {areas.Count} map areas");
+        // border crossings (checkpoint symbol, or the flag of the country being entered) and each city's country (for its flag)
+        var borders = new List<(byte Kind, string Cc, double X, double Z)>();
+        var borderSeen = new HashSet<(string, long, long)>();
+        foreach (var (tok, x, z) in col.RoadLabels.OrderBy(l => l.Tok).ThenBy(l => l.X).ThenBy(l => l.Z))
+        {
+            if (tok > ulong.MaxValue) continue;
+            string t = Sii.TokenToStr(tok);
+            if (!t.StartsWith("border_")) continue;
+            string cc = t[7..];
+            byte kind = cc == "ico" ? (byte)0 : (byte)1;
+            if (kind == 0) cc = "";
+            else if (cc.Length < 2 || cc.Length > 3) continue;
+            long gx = (long)Math.Floor(x / 300), gz = (long)Math.Floor(z / 300);
+            if (!borderSeen.Add((cc, gx, gz))) continue;
+            borders.Add((kind, cc, x, z));
+        }
+        w.Write((uint)borders.Count);
+        foreach (var (kind, cc, x, z) in borders) { w.Write(kind); Str(cc); w.Write(F32(x)); w.Write(F32(z)); }
+        var cityCc = new List<(string Id, string Cc)>();
+        foreach (var c in defs.Cities.Values)
+            if (defs.CountryIso.TryGetValue(c.Country, out var iso) && AssetPack.Iso3To2.TryGetValue(iso, out var a2)) cityCc.Add((c.Id, a2));
+        w.Write((uint)cityCc.Count);
+        foreach (var (id, a2) in cityCc) { Str(id); Str(a2); }
+        log($"{borders.Count} border markers, {cityCc.Count} city countries");
+        if (assetsPath != null)
+        {
+            try { AssetPack.Build(fs, assetsPath, log); }
+            catch (Exception e) { log("  ! logos / flags failed: " + e.Message); }
+        }
         w.Flush();
 
         using (var fsOut = File.Create(outPath))

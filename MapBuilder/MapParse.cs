@@ -93,7 +93,7 @@ public static class Sii
     public static string Decode(byte[] b)
     {
         try { return new UTF8Encoding(false, true).GetString(b); }
-        catch (DecoderFallbackException) { return Encoding.GetEncoding(1252).GetString(b); }
+        catch (DecoderFallbackException) { Encoding.RegisterProvider(CodePagesEncodingProvider.Instance); return Encoding.GetEncoding(1252).GetString(b); }
     }
 }
 
@@ -108,6 +108,10 @@ public sealed class Defs
     public readonly Dictionary<UInt128, RoadLook> RoadLooks = new();
     public readonly Dictionary<UInt128, string> PrefabPaths = new();
     public readonly List<(UInt128 A, UInt128 B, double Minutes)> FerryConns = new();
+    /// <summary>Company id ("stokes") -> the name shown in the game ("DHL").</summary>
+    public readonly Dictionary<string, string> CompanyNames = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Country id ("germany") -> ISO alpha-3 ("deu").</summary>
+    public readonly Dictionary<string, string> CountryIso = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<UInt128, Prefab?> prefabCache = new();
 
     public Defs(FileSystem fs, Action<string> log)
@@ -165,6 +169,23 @@ public sealed class Defs
                 var tok = Sii.StrToToken(name[(name.IndexOf('.') + 1)..]);
                 if (!PrefabPaths.ContainsKey(tok)) PrefabPaths[tok] = Sii.Str(p.S["prefab_desc"]);
             }
+        foreach (var f in fs.ListDir("def/company").Files)
+        {
+            if (!f.EndsWith(".sii") && !f.EndsWith(".sui")) continue;
+            foreach (var (cls, name, p) in Sii.Blocks(Sii.Decode(fs.Read("def/company/" + f) ?? Array.Empty<byte>())))
+            {
+                if (cls != "company_permanent" || !p.Has("name")) continue;
+                string id = name[(name.LastIndexOf('.') + 1)..];
+                string shown = Sii.Str(p.S["name"]).Trim();
+                if (shown.Length > 0 && !CompanyNames.ContainsKey(id)) CompanyNames[id] = shown;
+            }
+        }
+        foreach (var f in fs.ListDir("def/country").Files)
+        {
+            if (!f.EndsWith(".sui") && !f.EndsWith(".sii")) continue;
+            foreach (var (cls, name, p) in Sii.Blocks(Sii.Decode(fs.Read("def/country/" + f) ?? Array.Empty<byte>())))
+                if (cls == "country_data" && p.Has("iso_country_code")) CountryIso[name[(name.LastIndexOf('.') + 1)..]] = p.S["iso_country_code"].Trim().Trim('"');
+        }
         const string dir = "def/ferry/connection";
         foreach (var f in fs.ListDir(dir).Files)
         {
@@ -278,6 +299,9 @@ public sealed class Sector
     public List<(ulong Company, ulong City, double X, double Z)> Companies = new();
     public List<(ulong Port, ulong Link, ulong Node, bool Train, double X, double Z)> Ferries = new();
     public List<(int Type, double X, double Z)> Overlays = new();
+    /// <summary>Road-number overlays (token such as al_sh2) and the map areas (lots, yards, green patches) with their colour class.</summary>
+    public List<(ulong Tok, double X, double Z)> RoadLabels = new();
+    public List<(List<ulong> Nodes, uint Color)> Areas = new();
     public Dictionary<ulong, (double X, double Z, double Rot)> Nodes = new();
     public bool Ok;
     public int Version;
@@ -407,6 +431,7 @@ public static class SectorParser
                         ulong tok = Bin.U64(d, f + 5);
                         bool isParking = ver >= 898 ? (d[f] & 0x0F) == 1 : ((d[f + 2] & 1) != 0 && tok == 0);
                         if (isParking && d[f] != 255) sec.Overlays.Add((3, x, z));
+                        else if (ver >= 898 && (d[f] & 0x0F) == 0 && d[f] != 255 && tok != 0) sec.RoadLabels.Add((tok, x, z));
                         e = f + 0x15;
                         break;
                     }
@@ -460,6 +485,12 @@ public static class SectorParser
                 case TMapArea:
                     nc = Bin.I32(d, f + 5);
                     e = f + 5 + 4 + 8 * nc + 4;
+                    if (nc >= 3 && nc < 1000)
+                    {
+                        var an = new List<ulong>(nc);
+                        for (int k = 0; k < nc; k++) an.Add(Bin.U64(d, f + 9 + 8 * k));
+                        sec.Areas.Add((an, Bin.U32(d, e - 4)));
+                    }
                     break;
                 case TCurve when ver < 907:
                     {

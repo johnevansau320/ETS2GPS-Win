@@ -22,3 +22,13 @@ if (-not $NoPrompt -and -not $Start) {
     if ((Read-Host "Start it now? (y/n)") -eq "y") { $Start = $true }
 }
 if ($Start) { Start-Process $target }
+
+# the lane overlay window (started by the app when it is not running): install it too when its build is next to this project
+$ov = Join-Path $PSScriptRoot "..\overlay-dotnet\publish\Ets2LaneOverlay.exe"
+if (-not (Test-Path $ov)) { $ov = Join-Path $PSScriptRoot "Ets2LaneOverlay.exe" }
+if (Test-Path $ov) {
+    $odir = Join-Path $env:LOCALAPPDATA "Programs\ETS2 Lane Overlay"
+    New-Item -ItemType Directory -Force $odir | Out-Null
+    Copy-Item $ov $odir -Force
+    Write-Host "Lane overlay installed to $odir"
+}

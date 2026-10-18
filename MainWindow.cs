@@ -43,15 +43,15 @@ public sealed partial class MainWindow : Window
     readonly TextBlock bJob1 = Ui.Text("", 30, null, FontWeights.Bold), bJob2 = Ui.Text("", 28);
     readonly Border bThenBox = new();
     readonly LanePanel lanePanel = new();
-    readonly CompassControl compass = new() { Width = 130, Height = 130 };
+    readonly CompassControl compass = new() { Width = 169, Height = 169 };
     readonly TextBlock speedText = Ui.Text("0", 68, null, FontWeights.Bold), speedUnit = Ui.Text("km/h", 22, Ui.Dim);
     readonly Border limitBox = new();
     readonly TextBlock limitText = Ui.Text("--", 38, Brushes.Black, FontWeights.Bold);
     readonly TextBlock infoText = Ui.Text("No route", 30), statusText = Ui.Text("", 13, new SolidColorBrush(Color.FromArgb(220, 255, 200, 120)));
-    readonly TextBlock altText = Ui.Text("-- m", 34, null, FontWeights.Bold);
+    readonly TextBlock altText = Ui.Text("-- m", 44, null, FontWeights.Bold);
     readonly TextBlock toastText = Ui.Text("", 15);
-    readonly Button tripBtn = Ui.Button("Trip", 190, 58, Ui.Accent, 30), modeBtn = Ui.Button("Heavy", 190, 58, null, 30), voiceBtn = Ui.Button("Voice on", 190, 58, null, 30),
-        pinBtn = Ui.Button("Pin on top", 190, 58, null, 30), recentreBtn = Ui.Button("◎  Recentre", 150, 48, new SolidColorBrush(Color.FromRgb(30, 120, 70)), 17);
+    readonly Button tripBtn = Ui.Button("Trip", 210, 62, Ui.Accent, 36), modeBtn = Ui.Button("Heavy", 210, 62, null, 36), voiceBtn = Ui.Button("Voice on", 210, 62, null, 36),
+        pinBtn = Ui.Button("Pin on top", 210, 62, null, 36), recentreBtn = Ui.Button("◎  Recentre", 150, 48, new SolidColorBrush(Color.FromRgb(30, 120, 70)), 17);
     readonly StackPanel menu = new();
     readonly UIElement[] hideOnTrip;
     readonly DispatcherTimer toastTimer = new() { Interval = TimeSpan.FromSeconds(3.5) };
@@ -67,6 +67,8 @@ public sealed partial class MainWindow : Window
         routeMode = RouteMode.ByKey(cfg.RouteMode);
         distScale = cfg.DistScale;
         Title = "ETS2 GPS";
+        transparentWindow = cfg.Opacity < 0.999;
+        if (transparentWindow) AllowsTransparency = true;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.CanResize;
         Background = new SolidColorBrush(Color.FromRgb(16, 21, 28));
@@ -77,7 +79,8 @@ public sealed partial class MainWindow : Window
         else WindowStartupLocation = WindowStartupLocation.CenterScreen;
         if (cfg.Maximized) WindowState = WindowState.Maximized;
         Topmost = cfg.Topmost;
-        Opacity = Math.Clamp(cfg.Opacity, 0.3, 1.0);
+        Opacity = cfg.Opacity;
+        if (float.TryParse(ArgAfter("--zoom"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var zoomArg)) mapView.UserZoom = Math.Clamp(zoomArg, 0.35f, 10f);   // test only
         voice.Enabled = cfg.VoiceOn;
 
         Content = BuildUi();
@@ -96,6 +99,9 @@ public sealed partial class MainWindow : Window
         PreviewKeyDown += OnKey;
         SizeChanged += (_, _) => PlaceCompass();
         Loaded += (_, _) => OnLoaded();
+        ContentRendered += (_, _) => ApplyAlpha();   // WPF resets the layered style while the window is being shown
+        Activated += (_, _) => ApplyAlpha();
+        StateChanged += (_, _) => ApplyAlpha();
         Closed += (_, _) => { PersistWindow(); telemetry.Dispose(); server?.Dispose(); voice.Dispose(); };
     }
 
@@ -173,16 +179,16 @@ public sealed partial class MainWindow : Window
         void Add(Button b, Action click) { b.Margin = new Thickness(0, 2, 0, 2); b.Click += (_, _) => click(); menu.Children.Add(b); }
         Add(tripBtn, ToggleTrip);
         menu.Children.Add(new Border { Height = 8 });
-        Add(Ui.Button("Search", 190, 58, null, 30), () => ShowSearch(false));
-        Add(Ui.Button("Stops", 190, 58, null, 30), ShowStops);
-        Add(Ui.Button("Trips", 190, 58, null, 30), ShowTrips);
+        Add(Ui.Button("Search", 210, 62, null, 36), () => ShowSearch(false));
+        Add(Ui.Button("Stops", 210, 62, null, 36), ShowStops);
+        Add(Ui.Button("Trips", 210, 62, null, 36), ShowTrips);
         Add(modeBtn, CycleMode);
         Add(voiceBtn, ToggleVoice);
-        Add(Ui.Button("POI", 190, 58, null, 30), ShowPoiPicker);
-        Add(Ui.Button("Job", 190, 58, null, 30), RouteToJob);
-        Add(Ui.Button("Stop", 190, 58, null, 30), CancelRoute);
+        Add(Ui.Button("POI", 210, 62, null, 36), ShowPoiPicker);
+        Add(Ui.Button("Job", 210, 62, null, 36), RouteToJob);
+        Add(Ui.Button("Stop", 210, 62, null, 36), CancelRoute);
         Add(pinBtn, TogglePin);
-        Add(Ui.Button("⚙", 190, 58, null, 30), ShowSettings);
+        Add(Ui.Button("⚙", 210, 62, null, 36), ShowSettings);
         var menuScroll = new ScrollViewer { Content = menu, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Stretch, Margin = new Thickness(10, 184, 0, 152) };
         Panel.SetZIndex(menuScroll, 5);
         root.Children.Add(menuScroll);
@@ -193,13 +199,13 @@ public sealed partial class MainWindow : Window
         root.Children.Add(compass);
         altText.TextAlignment = TextAlignment.Center;
         altBox.Child = altText; altBox.Background = new SolidColorBrush(Color.FromArgb(190, 14, 18, 24)); altBox.CornerRadius = new CornerRadius(10);
-        altBox.Padding = new Thickness(12, 4, 12, 4); altBox.HorizontalAlignment = HorizontalAlignment.Right; altBox.VerticalAlignment = VerticalAlignment.Top;
-        altBox.Margin = new Thickness(0, 230, 112, 0); altBox.Height = 130; altBox.Cursor = Cursors.Hand;
+        altBox.Padding = new Thickness(16, 5, 16, 5); altBox.HorizontalAlignment = HorizontalAlignment.Right; altBox.VerticalAlignment = VerticalAlignment.Top;
+        altBox.Margin = new Thickness(0, 230, 112, 0); altBox.Height = 169; altBox.Cursor = Cursors.Hand;
         altBox.MouseLeftButtonUp += (_, _) => ShowElevation();
         root.Children.Add(altBox);
         zoomBox = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 24, 0) };
-        var zin = Ui.Button("+", 68, 68, null, 34); zin.Margin = new Thickness(0, 0, 0, 10); zin.Click += (_, _) => mapView.ZoomBy(1.3f);
-        var zout = Ui.Button("−", 68, 68, null, 34); zout.Click += (_, _) => mapView.ZoomBy(1f / 1.3f);
+        var zin = Ui.Button("+", 88, 88, null, 44); zin.Margin = new Thickness(0, 0, 0, 13); zin.Click += (_, _) => mapView.ZoomBy(1.3f);
+        var zout = Ui.Button("−", 88, 88, null, 44); zout.Click += (_, _) => mapView.ZoomBy(1f / 1.3f);
         zoomBox.Children.Add(zin); zoomBox.Children.Add(zout);
         root.Children.Add(zoomBox);
         recentreBtn.HorizontalAlignment = HorizontalAlignment.Right; recentreBtn.VerticalAlignment = VerticalAlignment.Bottom; recentreBtn.Margin = new Thickness(0, 0, 24, 160);
@@ -255,6 +261,23 @@ public sealed partial class MainWindow : Window
         base.OnSourceInitialized(e);
         var src = System.Windows.Interop.HwndSource.FromHwnd(new System.Windows.Interop.WindowInteropHelper(this).Handle);
         src?.AddHook(WndProc);
+        ApplyAlpha();
+    }
+
+    // A transparent window (AllowsTransparency) is what lets the game / desktop underneath show through; WPF's plain
+    // Window.Opacity on an ordinary window only fades towards black. It costs some rendering speed, so it is only switched on
+    // when the saved opacity is below 100 % (changing between 100 % and less takes effect after a restart).
+    double alpha = 1.0;
+    readonly bool transparentWindow;
+    public new double Opacity
+    {
+        get => alpha;
+        set { alpha = Math.Clamp(value, 0.3, 1.0); ApplyAlpha(); }
+    }
+
+    void ApplyAlpha()
+    {
+        if (transparentWindow) base.Opacity = alpha;
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hwnd, int flags);
@@ -314,10 +337,10 @@ public sealed partial class MainWindow : Window
     /// <summary>Compass and altitude box sit on the right edge, halfway between the banner and the zoom buttons.</summary>
     void PlaceCompass()
     {
-        double h = ActualHeight / Math.Max(0.01, scaleTransform.ScaleY), barBottom = 180, zoomTop = h / 2 - 76;
-        double top = Math.Max(barBottom + 6, (barBottom + zoomTop) / 2 - 65);
+        double h = ActualHeight / Math.Max(0.01, scaleTransform.ScaleY), barBottom = 180, zoomTop = h / 2 - 98;
+        double top = Math.Max(barBottom + 6, (barBottom + zoomTop) / 2 - 85);
         compass.Margin = new Thickness(0, top, 4, 0);
-        altBox.Margin = new Thickness(0, top, 146, 0);
+        altBox.Margin = new Thickness(0, top, 185, 0);
     }
 
     // test hooks: --goto <city> routes there as soon as the truck is known, --trip opens the trip screen
@@ -345,6 +368,7 @@ public sealed partial class MainWindow : Window
         CompositionTarget.Rendering += OnFrame;
         tripTimer.Start();
         _ = LoadMapAsync();
+        if (cfg.OverlayAutoStart) { var om = OverlayLauncher.EnsureRunning(cfg); if (om != null) Toast(om); }
     }
 
     void OnFrame(object? sender, EventArgs e)

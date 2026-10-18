@@ -40,6 +40,7 @@ public sealed partial class MainWindow
             rt.SetAvoid(cfg.Avoid.Select(a => (a.X, a.Z)));
             map = m; router = rt; nav = new Navigator(m, rt) { DistScale = distScale };
             mapView.Map = m;
+            mapView.Assets = await Task.Run(() => MapAssets.Load(MapService.AssetsPath));
             SetBannerMessage(null); ClearManeuver();
             if (autoGoto != null || autoTrip) _ = AutoStartAsync();
             Toast($"Map loaded: {m.Cities.Count} cities, {m.EdgeCount:N0} road segments" + (m.LaneN.Length > 0 ? ", with lane data" : " - no lane data: rebuild the map with the updated companion"));
@@ -69,6 +70,7 @@ public sealed partial class MainWindow
         long now = clock.ElapsedMilliseconds;
         motion.Update(s, now);
         mapView.HasFix = s.Connected && (s.X != 0 || s.Z != 0);
+        mapView.SpeedKmh = s.SpeedKmh;
         statusText.Text = !s.Connected ? "Telemetry connected - waiting for the game" : s.Paused ? "Game paused" : place;
         speedText.Text = Math.Round(Math.Max(0, s.SpeedKmh)).ToString(CultureInfo.InvariantCulture);
         if (s.SpeedLimitKmh > 0) { limitText.Text = s.SpeedLimitKmh.ToString(CultureInfo.InvariantCulture); limitBox.Visibility = Visibility.Visible; } else limitBox.Visibility = Visibility.Hidden;

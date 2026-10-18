@@ -173,6 +173,20 @@ public sealed partial class MainWindow
         op.ValueChanged += (_, e) => { opLabel.Text = "Opacity " + (int)e.NewValue + "%"; Opacity = e.NewValue / 100.0; };
         sp.Children.Add(opLabel); sp.Children.Add(op);
 
+        sp.Children.Add(H("Lane overlay window"));
+        var ovAuto = new CheckBox { Content = new TextBlock { Text = "Start the lane overlay when this app starts (if it is not already running)", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.OverlayAutoStart, Foreground = Brushes.White };
+        sp.Children.Add(ovAuto);
+        sp.Children.Add(new TextBlock { Text = "Path to Ets2LaneOverlay.exe (empty = look in the usual places)", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0) });
+        var ovPath = Box(cfg.OverlayPath); sp.Children.Add(ovPath);
+        var ovNow = Ui.Button("Start overlay now", double.NaN, 32); ovNow.Padding = new Thickness(12, 0, 12, 0); ovNow.HorizontalAlignment = HorizontalAlignment.Left; ovNow.Margin = new Thickness(0, 8, 0, 0);
+        ovNow.Click += (_, _) =>
+        {
+            var keep = cfg.OverlayPath; cfg.OverlayPath = ovPath.Text.Trim();
+            Toast(OverlayLauncher.EnsureRunning(cfg) ?? "Lane overlay is already running");
+            if (OverlayLauncher.Find(cfg) == null) cfg.OverlayPath = keep;
+        };
+        sp.Children.Add(ovNow);
+
         sp.Children.Add(H("Voice (this PC's speakers / headset)"));
         var voiceOn = new CheckBox { Content = "Voice guidance", IsChecked = voice.Enabled, Foreground = Brushes.White };
         sp.Children.Add(voiceOn);
@@ -213,6 +227,7 @@ public sealed partial class MainWindow
             if (md != null && md != routeMode) SetRouteMode(md);
             Topmost = pin.IsChecked == true; cfg.Topmost = Topmost; UpdatePinButton();
             cfg.Opacity = Opacity;
+            cfg.OverlayAutoStart = ovAuto.IsChecked == true; cfg.OverlayPath = ovPath.Text.Trim();
             voice.Enabled = voiceOn.IsChecked == true; cfg.VoiceOn = voice.Enabled; UpdateVoiceButton();
             cfg.VoiceName = combo.SelectedIndex > 0 ? voices[combo.SelectedIndex - 1] : ""; cfg.VoiceRate = (int)rate.Value;
             voice.Configure(cfg.VoiceRate, cfg.VoiceName);

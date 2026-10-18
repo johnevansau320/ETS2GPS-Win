@@ -35,6 +35,8 @@ public sealed class AppSettings
     public string VoiceName { get; set; } = "";
     public bool Topmost { get; set; } = false;             // keep the window above other apps
     public double Opacity { get; set; } = 1.0;
+    public bool OverlayAutoStart { get; set; } = true;     // start the lane overlay window with the app when it is not already running
+    public string OverlayPath { get; set; } = "";           // Ets2LaneOverlay.exe (empty = look in the usual places)
     public double Left { get; set; } = double.NaN;
     public double Top { get; set; } = double.NaN;
     public double Width { get; set; } = 1280;

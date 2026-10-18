@@ -22,6 +22,7 @@ public static class MapService
 {
     public static string MapPath => Path.Combine(AppSettings.Dir, "etsmap.bin");
     public static string MetaPath => Path.Combine(AppSettings.Dir, "etsmap.meta.json");
+    public static string AssetsPath => Path.Combine(AppSettings.Dir, "etsassets.bin");
     public static string LogPath => Path.Combine(AppSettings.Dir, "map_build.log");
 
     public static MapMeta? ReadMeta()
@@ -78,7 +79,7 @@ public static class MapService
             {
                 int pct = (int)(frac * 100);
                 if (pct != lastPct) { lastPct = pct; progress.Report($"{text} {pct}%"); }
-            });
+            }, AssetsPath);
             File.Move(tmp, MapPath, true);
             File.WriteAllText(MetaPath, JsonSerializer.Serialize(new MapMeta
             {

@@ -7,16 +7,30 @@ namespace Ets2Gps;
 
 public sealed record Poi(int Type, float X, float Z)
 {
-    public const int Fuel = 1, Service = 2, Parking = 3, Weigh = 4, Dealer = 5, Garage = 6, Recruit = 7, Hotel = 8;
+    public const int Fuel = 1, Service = 2, Parking = 3, Weigh = 4, Dealer = 5, Garage = 6, Recruit = 7, Hotel = 8, Ferry = 9, Train = 10;
 
     public static string Label(int t) => t switch
     {
         Fuel => "Fuel station", Service => "Service centre", Parking => "Rest area / parking", Weigh => "Weigh station",
-        Dealer => "Truck dealer", Garage => "Garage", Recruit => "Recruitment agency", _ => "Hotel",
+        Dealer => "Truck dealer", Garage => "Garage", Recruit => "Recruitment agency", Ferry => "Ferry terminal", Train => "Car train terminal", _ => "Hotel",
     };
 }
 
 public sealed record Company(string Id, string CityId, float X, float Z);
+
+/// <summary>A border crossing: Kind 0 = checkpoint symbol, 1 = the flag of the country being entered (Cc = ISO alpha-2).</summary>
+public sealed record BorderPoint(int Kind, string Cc, float X, float Z);
+
+/// <summary>A road-number shield ("E45", "SH 2") placed on the map.</summary>
+public sealed record RoadLabel(string Text, float X, float Z);
+
+/// <summary>A lot / yard / green patch outline: Color 0 = road surface, 1 = light, 2 = dark, 3 = green.</summary>
+public sealed class MapArea
+{
+    public byte Color;
+    public float[] X = Array.Empty<float>(), Z = Array.Empty<float>();
+    public float MinX, MinZ, MaxX, MaxZ;
+}
 
 public sealed class City
 {
@@ -61,6 +75,11 @@ public sealed class MapData
     public List<City> Cities = new();
     public List<Company> Companies = new();
     public List<Poi> Pois = new();
+    public Dictionary<string, string> CompanyNames = new(StringComparer.OrdinalIgnoreCase);
+    public List<RoadLabel> RoadLabels = new();
+    public List<MapArea> Areas = new();
+    public List<BorderPoint> Borders = new();
+    public Dictionary<string, string> CityCountry = new(StringComparer.OrdinalIgnoreCase);
     public byte[] LaneN = Array.Empty<byte>();
     public ushort[] LaneMask = Array.Empty<ushort>();
 
@@ -88,7 +107,7 @@ public sealed class MapData
     {
         if (d[0] != 'E' || d[1] != 'T' || d[2] != 'S' || d[3] != 'M') throw new InvalidDataException("not an ETS2 GPS map file");
         var m = new MapData { Version = U16(d, 4) };
-        if (m.Version < 2 || m.Version > 8) throw new InvalidDataException($"unsupported map version {m.Version} (rebuild the map or update the app)");
+        if (m.Version < 2 || m.Version > 9) throw new InvalidDataException($"unsupported map version {m.Version} (rebuild the map or update the app)");
         m.MinX = F32(d, 8); m.MinZ = F32(d, 12); m.MaxX = F32(d, 16); m.MaxZ = F32(d, 20);
         int o = 24;
         int nn = (int)U32(d, o); o += 4;
@@ -149,6 +168,38 @@ public sealed class MapData
                 uint e = U32(d, o);
                 if (e < en) { m.LaneN[e] = d[o + 4]; m.LaneMask[e] = U16(d, o + 5); }
                 o += 7;
+            }
+        }
+        if (m.Version >= 9 && o + 4 <= d.Length)
+        {
+            int nn2 = (int)U32(d, o); o += 4;
+            for (int i = 0; i < nn2; i++) { var id = Str(); m.CompanyNames[id] = Str(); }
+            int ln2 = (int)U32(d, o); o += 4;
+            for (int i = 0; i < ln2; i++) { var text = Str(); m.RoadLabels.Add(new RoadLabel(text, F32(d, o), F32(d, o + 4))); o += 8; }
+            int an = (int)U32(d, o); o += 4;
+            for (int i = 0; i < an; i++)
+            {
+                var a = new MapArea { Color = d[o] };
+                int np = U16(d, o + 1); o += 3;
+                a.X = new float[np]; a.Z = new float[np];
+                a.MinX = a.MinZ = float.MaxValue; a.MaxX = a.MaxZ = float.MinValue;
+                for (int k = 0; k < np; k++)
+                {
+                    float x = F32(d, o), z = F32(d, o + 4); o += 8;
+                    a.X[k] = x; a.Z[k] = z;
+                    if (x < a.MinX) a.MinX = x; if (x > a.MaxX) a.MaxX = x; if (z < a.MinZ) a.MinZ = z; if (z > a.MaxZ) a.MaxZ = z;
+                }
+                m.Areas.Add(a);
+            }
+        }
+        if (m.Version >= 9 && o + 4 <= d.Length)
+        {
+            int bn = (int)U32(d, o); o += 4;
+            for (int i = 0; i < bn; i++) { int kind = d[o]; o++; var cc = Str(); m.Borders.Add(new BorderPoint(kind, cc, F32(d, o), F32(d, o + 4))); o += 8; }
+            if (o + 4 <= d.Length)
+            {
+                int cn2 = (int)U32(d, o); o += 4;
+                for (int i = 0; i < cn2; i++) { var id = Str(); m.CityCountry[id] = Str(); }
             }
         }
         m.BuildGrid();
@@ -215,6 +266,18 @@ public sealed class MapData
     public int DeCount(int de) { int e = de >> 1; return EPtStart[e + 1] - EPtStart[e]; }
     public float DeX(int de, int i) { int e = de >> 1; return (de & 1) == 0 ? PtX[EPtStart[e] + i] : PtX[EPtStart[e + 1] - 1 - i]; }
     public float DeZ(int de, int i) { int e = de >> 1; return (de & 1) == 0 ? PtZ[EPtStart[e] + i] : PtZ[EPtStart[e + 1] - 1 - i]; }
+
+    /// <summary>ISO alpha-2 of the country around a point: that of the nearest city.</summary>
+    public string? CountryAt(float x, float z)
+    {
+        City? best = null; float bd = float.MaxValue;
+        foreach (var c in Cities)
+        {
+            float dx = c.X - x, dz = c.Z - z, dd = dx * dx + dz * dz;
+            if (dd < bd && CityCountry.ContainsKey(c.Id)) { bd = dd; best = c; }
+        }
+        return best != null ? CityCountry[best.Id] : null;
+    }
 
     public City? FindCity(string id) => Cities.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
     public Company? FindCompany(string cityId, string companyId) =>
