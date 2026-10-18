@@ -15,6 +15,7 @@ public sealed class SavedTrip
 {
     public string Name { get; set; } = "";
     public string Mode { get; set; } = "HEAVY";
+    public StopPoint? Start { get; set; }          // where a planned trip begins (null = wherever the truck is)
     public StopPoint Dest { get; set; } = new();
     public List<StopPoint> Stops { get; set; } = new();
     public float LengthM { get; set; }

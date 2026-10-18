@@ -42,7 +42,7 @@ public sealed partial class MainWindow
             mapView.Map = m;
             mapView.Assets = await Task.Run(() => MapAssets.Load(MapService.AssetsPath));
             SetBannerMessage(null); ClearManeuver();
-            if (autoGoto != null || autoTrip) _ = AutoStartAsync();
+            if (autoGoto != null || autoTrip || autoPlan != null) _ = AutoStartAsync();
             Toast($"Map loaded: {m.Cities.Count} cities, {m.EdgeCount:N0} road segments" + (m.LaneN.Length > 0 ? ", with lane data" : " - no lane data: rebuild the map with the updated companion"));
         }
         catch (Exception e)
@@ -53,6 +53,7 @@ public sealed partial class MainWindow
 
     async Task AutoStartAsync()
     {
+        if (autoPlan != null) { await Task.Delay(500); AutoPlan(autoPlan, autoPlanSave); }
         for (int i = 0; i < 100 && (truck == null || !truck.Connected); i++) await Task.Delay(100);
         if (autoGoto != null && map != null)
         {
@@ -367,18 +368,25 @@ public sealed partial class MainWindow
             float km = t.LengthM * distScale / 1000f;
             return t.Name + "\n" + (km >= 1 ? $"{km:0} km · " : "") + $"{t.Stops.Count} waypoint{(t.Stops.Count == 1 ? "" : "s")} · " + RouteMode.ByKey(t.Mode).Label;
         }).ToList();
-        Dlg.Pick(this, "Saved trips", rows, TripOptions, rows.Count == 0 ? "No saved trips yet. Plan a route (and any waypoints), then tap Save current trip." : null,
-            ("Save current trip", SaveCurrentTrip));
+        Dlg.Pick(this, "Saved trips", rows, TripOptions, rows.Count == 0 ? "No saved trips yet. Use Plan a trip (no game needed), or plan a route while driving and tap Save current trip." : null,
+            ("Plan a trip…", () => { plan = new PlanDraft(); ShowPlanner(); }), ("Save current trip", SaveCurrentTrip));
     }
 
     void TripOptions(int i)
     {
         if (i >= cfg.Trips.Count) return;
         var t = cfg.Trips[i];
-        Dlg.Pick(this, t.Name, new[] { "Start this trip from here", "Rename", "Delete" }, k =>
+        var items = new List<string>();
+        if (t.Start != null) items.Add("Drive this trip (to its start first)");
+        items.Add(t.Start != null ? "Drive from here (skip its start)" : "Start this trip from here");
+        items.Add("View / edit the plan"); items.Add("Rename"); items.Add("Delete");
+        Dlg.Pick(this, t.Name, items, k =>
         {
-            if (k == 0) StartSavedTrip(t);
-            else if (k == 1)
+            string what = items[k];
+            if (what.StartsWith("Drive this trip")) StartSavedTrip(t, true);
+            else if (what.StartsWith("Drive from here") || what.StartsWith("Start this trip")) StartSavedTrip(t);
+            else if (what.StartsWith("View")) EditSavedTrip(t);
+            else if (what == "Rename")
                 Dlg.Input(this, "Rename trip", t.Name, v =>
                 {
                     string name = v.Trim();
@@ -390,7 +398,7 @@ public sealed partial class MainWindow
         });
     }
 
-    void StartSavedTrip(SavedTrip t)
+    void StartSavedTrip(SavedTrip t, bool viaStart = false)
     {
         if (map == null) { Toast("Map not loaded yet"); return; }
         if (truck == null || !truck.Connected) { Toast("Start the game first - no truck position yet"); return; }
@@ -398,6 +406,9 @@ public sealed partial class MainWindow
         SetRouteMode(RouteMode.ByKey(t.Mode), false);
         SetAvoidFerries(t.AvoidFerries, false);
         waypoints = t.Stops.Select(w => new StopPoint { X = w.X, Z = w.Z, Name = w.Name }).ToList(); resume = null;
+        // a planned trip begins at its own start: drive there first unless the truck is already close to it
+        if (viaStart && t.Start != null && M.Hypot(t.Start.X - motion.X, t.Start.Z - motion.Z) > 1500f)
+            waypoints.Insert(0, new StopPoint { X = t.Start.X, Z = t.Start.Z, Name = t.Start.Name });
         ComputeRoute(t.Dest.X, t.Dest.Z, t.Dest.Name, announce: true, keepStops: true);
     }
 
@@ -419,6 +430,7 @@ public sealed partial class MainWindow
 
     void OnPointRequested(float x, float z)
     {
+        if (planning) { PlanPointMenu(x, z); return; }
         bool canStop = hasDest && nav?.Active == true;
         var items = canStop ? new[] { "Navigate here", "Add as waypoint", "Avoid road here" } : new[] { "Navigate here", "Avoid road here" };
         Dlg.Pick(this, "This point on the map", items, i =>

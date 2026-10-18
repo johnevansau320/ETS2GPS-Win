@@ -36,6 +36,8 @@ Opacity: Settings -> *Window* -> Opacity makes the window see-through (the game 
 
 Lane overlay: the app starts the stand-alone lane overlay window (`Ets2LaneOverlay.exe`) when it starts, if it is not already running (Settings -> *Lane overlay window* turns this off, sets the path, or starts it now). It is looked for in the configured path, `%LOCALAPPDATA%\Programs\ETS2 Lane Overlay`, next to the app, and in the project's `overlay-dotnet\publish` folder; `install.ps1` installs it too when that build is next to the project.
 
+Trip planner: **Plan** (left menu, or *Plan a trip…* in the Trips list) plans a trip without the game running and without any job: choose a start, add stops, choose the destination (city search; while previewing, right-click the map to use any spot), then **Preview on map** (route, length and time, zoomable all the way out), **Save trip** and later **Drive this trip**. A saved trip remembers its start; *Drive this trip* first leads you to the start (unless you are already near it) and then through the stops. Trips can be reopened (**View / edit the plan**), renamed and deleted from the Trips list.
+
 Keys: `+` / `-` zoom (up to 10x), `T` trip screen, `P` stay on top, `Esc` recentre / close trip screen, `F11` maximise.
 Mouse: drag the map to look around (Recentre returns), wheel to zoom, double-click resets zoom, right-click a point for
 Navigate here / Add as waypoint / Avoid road here.
@@ -43,7 +45,7 @@ Navigate here / Add as waypoint / Avoid road here.
 Settings (the gear): route type, avoid ferries and car trains, window opacity, voice, telemetry address, built-in server on/off
 and port, distance scale. `Save + rebuild map` forces a new map build.
 
-Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
+Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
 ## Requirements and build
 

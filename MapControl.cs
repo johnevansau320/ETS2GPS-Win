@@ -74,7 +74,7 @@ public sealed class MapControl : FrameworkElement
     double PivotX => ActualWidth * 0.5;
     double PivotY => ActualWidth > ActualHeight ? ActualHeight * 0.68 : ActualHeight * 0.72;
 
-    public void ZoomBy(float f) { UserZoom = Math.Clamp(UserZoom * f, 0.35f, 10f); InvalidateVisual(); }
+    public void ZoomBy(float f) { UserZoom = Math.Clamp(UserZoom * f, PlanMode ? 0.004f : 0.35f, 10f); InvalidateVisual(); }
 
     void EnterFree()
     {
@@ -96,7 +96,7 @@ public sealed class MapControl : FrameworkElement
 
     (float X, float Z)? ToWorld(Point p)
     {
-        if (!HasFix) return null;
+        if (!HasFix && !PlanMode) return null;
         double s = PxPerM, px = Free ? ActualWidth / 2 : PivotX, py = Free ? ActualHeight / 2 : PivotY;
         p = Unwarp(p, px, py, Ecam(ActualHeight, py));
         if (double.IsNaN(p.X)) return null;
@@ -112,7 +112,7 @@ public sealed class MapControl : FrameworkElement
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonDown(e);
-        if (e.ClickCount == 2) { UserZoom = 1f; InvalidateVisual(); return; }
+        if (e.ClickCount == 2 && !PlanMode) { UserZoom = 1f; InvalidateVisual(); return; }
         dragging = true; moved = false; downPos = dragLast = e.GetPosition(this);
         CaptureMouse();
     }
@@ -124,7 +124,7 @@ public sealed class MapControl : FrameworkElement
         var p = e.GetPosition(this);
         if (!moved && (p - downPos).Length < 6) return;
         moved = true;
-        if (!HasFix || Map == null) return;
+        if ((!HasFix && !PlanMode) || Map == null) return;
         if (!Free) EnterFree();
         double s = PxPerM, b = freeBearing, u = -(p.X - dragLast.X) / s, v = (p.Y - dragLast.Y) / s;
         freeCx += (float)(u * Math.Cos(b) + v * Math.Sin(b));
@@ -206,6 +206,24 @@ public sealed class MapControl : FrameworkElement
     }
 
     public MapAssets? Assets;
+
+    // plan mode: the map shows a planned trip (north up, any zoom, no truck) instead of following the truck
+    public bool PlanMode;
+    public float[] PlanPts = Array.Empty<float>();
+    public int[] PlanEdgePt = Array.Empty<int>();
+    public List<(float X, float Z, string Label, Color C)> Pins = new();
+
+    public void ShowPlan(float cx, float cz, float zoom)
+    {
+        PlanMode = true; Free = true; freeBearing = 0; freeCx = cx; freeCz = cz; UserZoom = zoom;
+        InvalidateVisual();
+    }
+
+    public void HidePlan()
+    {
+        PlanMode = false; Free = false; Pins = new(); PlanPts = Array.Empty<float>(); PlanEdgePt = Array.Empty<int>(); UserZoom = 1f;
+        InvalidateVisual();
+    }
     public float SpeedKmh;
 
     // ---------------------------------------------------------------------------- drawing --
@@ -240,7 +258,7 @@ public sealed class MapControl : FrameworkElement
         long nowT = Environment.TickCount64;
         double dtT = Math.Min(0.1, Math.Max(0, (nowT - lastTick) / 1000.0)); lastTick = nowT;
         if (SpeedKmh > 15f) driving = true; else if (SpeedKmh < 12f) driving = false;
-        double target = driving && !Free && HasFix && m != null && !dragging ? TiltMax : 0;
+        double target = driving && !Free && HasFix && m != null && !dragging && !PlanMode ? TiltMax : 0;
         if (Math.Abs(tilt - target) > 0.0005)
         {
             tilt += Math.Clamp(target - tilt, -dtT * 1.6, dtT * 1.6);
@@ -250,7 +268,7 @@ public sealed class MapControl : FrameworkElement
 
         dc.DrawRectangle(Bg, null, new Rect(0, 0, W, H));
         if (m == null) { Center(dc, "Loading the map…", W / 2, H / 2, 16, MsgBrush, false); return; }
-        if (!HasFix) { Center(dc, "Waiting for the game…", W / 2, H / 2, 16, MsgBrush, false); return; }
+        if (!HasFix && !PlanMode) { Center(dc, "Waiting for the game…", W / 2, H / 2, 16, MsgBrush, false); return; }
         double s = PxPerM; bool isFree = Free; double vb = ViewBearing;
         double px = isFree ? W / 2 : PivotX, py = isFree ? H / 2 : PivotY;
         double cs = Math.Cos(vb), sn = Math.Sin(vb);
@@ -268,7 +286,8 @@ public sealed class MapControl : FrameworkElement
         }
         bool showLocal = zoom > 0.3, showJunction = zoom > 0.45;
         foreach (var b in buckets) b.Clear();
-        m.QueryEdges(cx, cz, radius, e =>
+        bool drawRoads = !(PlanMode && zoom < 0.06);   // zoomed far out while planning: just the route and the towns
+        if (drawRoads) m.QueryEdges(cx, cz, radius, e =>
         {
             int cls = Math.Min(3, (int)m.ECls[e]);
             if ((cls == 0 && !showLocal) || (cls == 3 && !showJunction)) return;
@@ -364,11 +383,12 @@ public sealed class MapControl : FrameworkElement
         }
 
         // route
-        if (RoutePts.Length > 0 && RouteEdgePt.Length > 0)
+        var rPts = PlanMode ? PlanPts : RoutePts; var rStart = PlanMode ? PlanEdgePt : RouteEdgePt;
+        if (rPts.Length > 0 && rStart.Length > 0)
         {
-            int total = RoutePts.Length / 2;
-            int first = RouteEdgePt[Math.Min(Math.Max(0, RouteIdx - 1), RouteEdgePt.Length - 1)];
-            int last = Math.Min(total, first + 6000);
+            int total = rPts.Length / 2;
+            int first = PlanMode ? 0 : rStart[Math.Min(Math.Max(0, RouteIdx - 1), rStart.Length - 1)];
+            int last = PlanMode ? total : Math.Min(total, first + 6000);
             double w = Math.Max(10 * s, 6);
             var casing = new BandSet(); var fill = new BandSet();
             void BuildRoute(BandSet set)
@@ -377,7 +397,7 @@ public sealed class MapControl : FrameworkElement
                 double lx = 0, ly = 0, ls = 1;
                 for (int p = first; p < last; p++)
                 {
-                    var q = P(RoutePts[p * 2], RoutePts[p * 2 + 1]);
+                    var q = P(rPts[p * 2], rPts[p * 2 + 1]);
                     if (p > first)
                     {
                         double sc = (ls + q.Sc) / 2;
@@ -401,7 +421,7 @@ public sealed class MapControl : FrameworkElement
         // big area (city) names
         if (zoom < 1.8)
         {
-            double size = Math.Clamp(26 * Math.Pow(zoom, 0.35), 20, 34);
+            double size = Math.Clamp(26 * Math.Pow(zoom, 0.35), PlanMode ? 11 : 20, 34);
             foreach (var city in m.Cities)
             {
                 float dx = city.X - cx, dz = city.Z - cz;
@@ -513,7 +533,16 @@ public sealed class MapControl : FrameworkElement
                 });
             }
         }
-        for (int i = 0; i < Stops.Count; i++)
+        if (PlanMode)
+            foreach (var pin in Pins)
+            {
+                var p = P(pin.X, pin.Z);
+                if (p.X < -60 || p.X > W + 60 || p.Y < -60 || p.Y > H + 60) continue;
+                var pc = pin.C; var pl = pin.Label;
+                dc.DrawEllipse(new SolidColorBrush(pc), new Pen(Brushes.White, 3), new Point(p.X, p.Y), 20, 20);
+                Center(dc, pl, p.X, p.Y, 22, Brushes.White, true);
+            }
+        for (int i = 0; !PlanMode && i < Stops.Count; i++)
         {
             var p = P(Stops[i].X, Stops[i].Z);
             if (p.X < -60 || p.X > W + 60 || p.Y < -60 || p.Y > H + 60) continue;
@@ -524,7 +553,7 @@ public sealed class MapControl : FrameworkElement
                 Center(dc, (idx + 1).ToString(CultureInfo.InvariantCulture), p.X, p.Y, 20, Brushes.White, true);
             });
         }
-        var nm = NextManeuver;
+        var nm = PlanMode ? null : NextManeuver;
         if (nm != null)
         {
             var p = P(nm.X, nm.Z);
@@ -551,6 +580,7 @@ public sealed class MapControl : FrameworkElement
             dc.DrawRectangle(grad, null, new Rect(0, 0, W, fadeTo));
         }
 
+        if (PlanMode) return;
         var tp = (X: px, Y: py);
         double t = 15;
         dc.PushTransform(new TranslateTransform(tp.X, tp.Y));

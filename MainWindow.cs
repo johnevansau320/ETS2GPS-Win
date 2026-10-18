@@ -88,7 +88,7 @@ public sealed partial class MainWindow : Window
         UpdateModeButton(); UpdateVoiceButton(); UpdatePinButton();
         SetBannerMessage(null);
 
-        mapView.FreeChanged += f => recentreBtn.Visibility = f && !tripOpen ? Visibility.Visible : Visibility.Collapsed;
+        mapView.FreeChanged += f => recentreBtn.Visibility = f && !tripOpen && !planning ? Visibility.Visible : Visibility.Collapsed;
         mapView.PointRequested += OnPointRequested;
         toastTimer.Tick += (_, _) => { toastTimer.Stop(); toastBox.Visibility = Visibility.Collapsed; };
         saveTimer.Tick += (_, _) => { saveTimer.Stop(); PersistWindow(); };
@@ -182,6 +182,7 @@ public sealed partial class MainWindow : Window
         Add(Ui.Button("Search", 210, 62, null, 36), () => ShowSearch(false));
         Add(Ui.Button("Stops", 210, 62, null, 36), ShowStops);
         Add(Ui.Button("Trips", 210, 62, null, 36), ShowTrips);
+        Add(Ui.Button("Plan", 210, 62, null, 36), ShowPlanner);
         Add(modeBtn, CycleMode);
         Add(voiceBtn, ToggleVoice);
         Add(Ui.Button("POI", 210, 62, null, 36), ShowPoiPicker);
@@ -211,6 +212,7 @@ public sealed partial class MainWindow : Window
         recentreBtn.HorizontalAlignment = HorizontalAlignment.Right; recentreBtn.VerticalAlignment = VerticalAlignment.Bottom; recentreBtn.Margin = new Thickness(0, 0, 24, 160);
         recentreBtn.Visibility = Visibility.Collapsed; recentreBtn.Click += (_, _) => mapView.Recentre();
         root.Children.Add(recentreBtn);
+        root.Children.Add(BuildPlanBar());
         statusText.HorizontalAlignment = HorizontalAlignment.Right; statusText.VerticalAlignment = VerticalAlignment.Top; statusText.Margin = new Thickness(0, 184, 14, 0);
         statusText.TextAlignment = TextAlignment.Right;
         root.Children.Add(statusText);
@@ -346,6 +348,8 @@ public sealed partial class MainWindow : Window
     // test hooks: --goto <city> routes there as soon as the truck is known, --trip opens the trip screen
     string? autoGoto = ArgAfter("--goto");
     bool autoTrip = Environment.GetCommandLineArgs().Contains("--trip");
+    string? autoPlan = ArgAfter("--plan");
+    bool autoPlanSave = Environment.GetCommandLineArgs().Contains("--plan-save");
     static string? ArgAfter(string name)
     {
         var a = Environment.GetCommandLineArgs();
@@ -510,7 +514,7 @@ public sealed partial class MainWindow : Window
         tripPage.Visibility = tripOpen ? Visibility.Visible : Visibility.Collapsed;
         foreach (var el in hideOnTrip) el.Visibility = tripOpen ? Visibility.Collapsed : (el == statusText ? Visibility.Visible : Visibility.Visible);
         if (!tripOpen && lanePanel.Lanes == null) laneHost.Visibility = Visibility.Collapsed;
-        recentreBtn.Visibility = !tripOpen && mapView.Free ? Visibility.Visible : Visibility.Collapsed;
+        recentreBtn.Visibility = !tripOpen && !planning && mapView.Free ? Visibility.Visible : Visibility.Collapsed;
         tripBtn.Content = tripOpen ? "Map" : "Trip";
         if (tripOpen) { SetLaneUi(null); UpdateTrip(); }
     }
