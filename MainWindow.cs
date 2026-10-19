@@ -50,7 +50,7 @@ public sealed partial class MainWindow : Window
     readonly TextBlock infoText = Ui.Text("No route", 30), statusText = Ui.Text("", 13, new SolidColorBrush(Color.FromArgb(220, 255, 200, 120)));
     readonly TextBlock altText = Ui.Text("-- m", 44, null, FontWeights.Bold);
     readonly TextBlock toastText = Ui.Text("", 15);
-    readonly Button tripBtn = Ui.Button("Trip", 210, 62, Ui.Accent, 36), modeBtn = Ui.Button("Heavy", 210, 62, null, 36), voiceBtn = Ui.Button("Voice on", 210, 62, null, 36),
+    readonly Button tripBtn = Ui.Button("Job Info", 210, 62, Ui.Accent, 36), modeBtn = Ui.Button("Heavy", 210, 62, null, 36), voiceBtn = Ui.Button("Voice on", 210, 62, null, 36),
         pinBtn = Ui.Button("Pin on top", 210, 62, null, 36), recentreBtn = Ui.Button("◎  Recentre", 150, 48, new SolidColorBrush(Color.FromRgb(30, 120, 70)), 17);
     readonly StackPanel menu = new();
     readonly UIElement[] hideOnTrip;
@@ -349,6 +349,7 @@ public sealed partial class MainWindow : Window
     string? autoGoto = ArgAfter("--goto");
     bool autoTrip = Environment.GetCommandLineArgs().Contains("--trip");
     string? autoPlan = ArgAfter("--plan");
+    string? autoTripsExport = ArgAfter("--trips-export"), autoTripsImport = ArgAfter("--trips-import");
     bool autoPlanSave = Environment.GetCommandLineArgs().Contains("--plan-save");
     static string? ArgAfter(string name)
     {
@@ -515,7 +516,7 @@ public sealed partial class MainWindow : Window
         foreach (var el in hideOnTrip) el.Visibility = tripOpen ? Visibility.Collapsed : (el == statusText ? Visibility.Visible : Visibility.Visible);
         if (!tripOpen && lanePanel.Lanes == null) laneHost.Visibility = Visibility.Collapsed;
         recentreBtn.Visibility = !tripOpen && !planning && mapView.Free ? Visibility.Visible : Visibility.Collapsed;
-        tripBtn.Content = tripOpen ? "Map" : "Trip";
+        tripBtn.Content = tripOpen ? "Map" : "Job Info";
         if (tripOpen) { SetLaneUi(null); UpdateTrip(); }
     }
 

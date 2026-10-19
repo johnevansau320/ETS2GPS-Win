@@ -48,7 +48,7 @@ public static class Ui
 /// <summary>Modal dialogs in the app's dark style. Callbacks run after the dialog has closed.</summary>
 public static class Dlg
 {
-    static Window Make(Window owner, string title, double width = 520)
+    static Window Make(Window owner, string title, double width = 640)
     {
         return new Window
         {

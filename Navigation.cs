@@ -42,7 +42,7 @@ public sealed partial class MainWindow
             mapView.Map = m;
             mapView.Assets = await Task.Run(() => MapAssets.Load(MapService.AssetsPath));
             SetBannerMessage(null); ClearManeuver();
-            if (autoGoto != null || autoTrip || autoPlan != null) _ = AutoStartAsync();
+            if (autoGoto != null || autoTrip || autoPlan != null || autoTripsExport != null || autoTripsImport != null) _ = AutoStartAsync();
             Toast($"Map loaded: {m.Cities.Count} cities, {m.EdgeCount:N0} road segments" + (m.LaneN.Length > 0 ? ", with lane data" : " - no lane data: rebuild the map with the updated companion"));
         }
         catch (Exception e)
@@ -54,6 +54,7 @@ public sealed partial class MainWindow
     async Task AutoStartAsync()
     {
         if (autoPlan != null) { await Task.Delay(500); AutoPlan(autoPlan, autoPlanSave); }
+        if (autoTripsExport != null || autoTripsImport != null) { await Task.Delay(500); AutoTripFiles(autoTripsExport, autoTripsImport); }
         for (int i = 0; i < 100 && (truck == null || !truck.Connected); i++) await Task.Delay(100);
         if (autoGoto != null && map != null)
         {
@@ -369,7 +370,7 @@ public sealed partial class MainWindow
             return t.Name + "\n" + (km >= 1 ? $"{km:0} km · " : "") + $"{t.Stops.Count} waypoint{(t.Stops.Count == 1 ? "" : "s")} · " + RouteMode.ByKey(t.Mode).Label;
         }).ToList();
         Dlg.Pick(this, "Saved trips", rows, TripOptions, rows.Count == 0 ? "No saved trips yet. Use Plan a trip (no game needed), or plan a route while driving and tap Save current trip." : null,
-            ("Plan a trip…", () => { plan = new PlanDraft(); ShowPlanner(); }), ("Save current trip", SaveCurrentTrip));
+            ("Plan a trip…", () => { plan = new PlanDraft(); ShowPlanner(); }), ("Save current trip", SaveCurrentTrip), ("Import / export…", TripFileMenu));
     }
 
     void TripOptions(int i)
@@ -379,13 +380,14 @@ public sealed partial class MainWindow
         var items = new List<string>();
         if (t.Start != null) items.Add("Drive this trip (to its start first)");
         items.Add(t.Start != null ? "Drive from here (skip its start)" : "Start this trip from here");
-        items.Add("View / edit the plan"); items.Add("Rename"); items.Add("Delete");
+        items.Add("View / edit the plan"); items.Add("Export this trip…"); items.Add("Rename"); items.Add("Delete");
         Dlg.Pick(this, t.Name, items, k =>
         {
             string what = items[k];
             if (what.StartsWith("Drive this trip")) StartSavedTrip(t, true);
             else if (what.StartsWith("Drive from here") || what.StartsWith("Start this trip")) StartSavedTrip(t);
             else if (what.StartsWith("View")) EditSavedTrip(t);
+            else if (what.StartsWith("Export")) ExportTripsDialog(new List<SavedTrip> { t }, t.Name);
             else if (what == "Rename")
                 Dlg.Input(this, "Rename trip", t.Name, v =>
                 {
