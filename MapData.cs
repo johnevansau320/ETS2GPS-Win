@@ -80,6 +80,9 @@ public sealed class MapData
     public List<MapArea> Areas = new();
     public List<BorderPoint> Borders = new();
     public Dictionary<string, string> CityCountry = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Per road point: height above the road it crosses, in 0.5 m units (0 = on the ground). Empty when the map has none.</summary>
+    public byte[] PtLift = Array.Empty<byte>();
+    public bool[] EHasLift = Array.Empty<bool>();
     public byte[] LaneN = Array.Empty<byte>();
     public ushort[] LaneMask = Array.Empty<ushort>();
 
@@ -107,7 +110,7 @@ public sealed class MapData
     {
         if (d[0] != 'E' || d[1] != 'T' || d[2] != 'S' || d[3] != 'M') throw new InvalidDataException("not an ETS2 GPS map file");
         var m = new MapData { Version = U16(d, 4) };
-        if (m.Version < 2 || m.Version > 9) throw new InvalidDataException($"unsupported map version {m.Version} (rebuild the map or update the app)");
+        if (m.Version < 2 || m.Version > 10) throw new InvalidDataException($"unsupported map version {m.Version} (rebuild the map or update the app)");
         m.MinX = F32(d, 8); m.MinZ = F32(d, 12); m.MaxX = F32(d, 16); m.MaxZ = F32(d, 20);
         int o = 24;
         int nn = (int)U32(d, o); o += 4;
@@ -202,6 +205,18 @@ public sealed class MapData
                 for (int i = 0; i < cn2; i++) { var id = Str(); m.CityCountry[id] = Str(); }
             }
         }
+        if (m.Version >= 10 && o + 4 <= d.Length)
+        {
+            m.PtLift = new byte[total]; m.EHasLift = new bool[en];
+            int lc = (int)U32(d, o); o += 4;
+            for (int i = 0; i < lc; i++)
+            {
+                uint e = U32(d, o); o += 4;
+                int cnt = m.EPtStart[e + 1] - m.EPtStart[e];
+                Buffer.BlockCopy(d, o, m.PtLift, m.EPtStart[e], cnt);
+                m.EHasLift[e] = true; o += cnt;
+            }
+        }
         m.BuildGrid();
         return m;
     }
@@ -265,6 +280,8 @@ public sealed class MapData
     public int DeTo(int de) => (de & 1) == 0 ? ETo[de >> 1] : EFrom[de >> 1];
     public int DeCount(int de) { int e = de >> 1; return EPtStart[e + 1] - EPtStart[e]; }
     public float DeX(int de, int i) { int e = de >> 1; return (de & 1) == 0 ? PtX[EPtStart[e] + i] : PtX[EPtStart[e + 1] - 1 - i]; }
+    /// <summary>Lift (metres) of point i of a directed edge.</summary>
+    public float DeLift(int de, int i) { if (PtLift.Length == 0) return 0; int e = de >> 1; return 0.5f * ((de & 1) == 0 ? PtLift[EPtStart[e] + i] : PtLift[EPtStart[e + 1] - 1 - i]); }
     public float DeZ(int de, int i) { int e = de >> 1; return (de & 1) == 0 ? PtZ[EPtStart[e] + i] : PtZ[EPtStart[e + 1] - 1 - i]; }
 
     /// <summary>ISO alpha-2 of the country around a point: that of the nearest city.</summary>

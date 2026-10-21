@@ -216,8 +216,11 @@ public sealed partial class MainWindow
         sp.Children.Add(srv);
         sp.Children.Add(new TextBlock { Text = "Server port (changes apply after restarting the app)", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0) });
         var port = Box(cfg.ServerPort.ToString(CultureInfo.InvariantCulture)); port.Width = 120; port.HorizontalAlignment = HorizontalAlignment.Left; sp.Children.Add(port);
-        sp.Children.Add(H("Distance scale (the game shows map metres x19)"));
-        var scale = Box(distScale.ToString(CultureInfo.InvariantCulture)); scale.Width = 120; scale.HorizontalAlignment = HorizontalAlignment.Left; sp.Children.Add(scale);
+        sp.Children.Add(H("Distances"));
+        var realD = new CheckBox { Content = new TextBlock { Text = "Real distances (turns, lane guidance, route length). Off = Sim distances like the game shows", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.RealDistances, Foreground = Brushes.White };
+        sp.Children.Add(realD);
+        sp.Children.Add(new TextBlock { Text = "Sim scale (the game shows map metres x19)", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0) });
+        var scale = Box(cfg.DistScale.ToString(CultureInfo.InvariantCulture)); scale.Width = 120; scale.HorizontalAlignment = HorizontalAlignment.Left; sp.Children.Add(scale);
 
         void Save(bool reloadMap)
         {
@@ -234,7 +237,9 @@ public sealed partial class MainWindow
             cfg.TelemetryHost = tele.Text.Trim();
             cfg.ServerEnabled = srv.IsChecked == true;
             if (int.TryParse(port.Text, out var pt) && pt > 1023 && pt < 65536) cfg.ServerPort = pt;
-            if (float.TryParse(scale.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var sc) && sc > 0) { distScale = sc; cfg.DistScale = sc; if (nav != null) nav.DistScale = sc; }
+            if (float.TryParse(scale.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var sc) && sc > 0) cfg.DistScale = sc;
+            cfg.RealDistances = realD.IsChecked == true;
+            distScale = cfg.RealDistances ? 1f : cfg.DistScale; if (nav != null) nav.DistScale = distScale;
             cfg.Save();
             if (reloadMap) { try { File.Delete(MapBuilder.MapService.MetaPath); } catch { /* ignore */ } _ = LoadMapAsync(); }
         }

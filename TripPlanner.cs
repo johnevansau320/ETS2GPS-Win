@@ -183,14 +183,14 @@ public sealed partial class MainWindow
         if (edges.Count == 0) return "The start and the destination are the same place";
         int total = 0;
         foreach (int de in edges) total += m.DeCount(de);
-        var line = new float[total * 2]; var starts = new float[edges.Count];
+        var line = new float[total * 2]; var lift = new byte[total]; var starts = new float[edges.Count];
         int p = 0;
         for (int i = 0; i < edges.Count; i++)
         {
             int de = edges[i]; starts[i] = p;
-            for (int k = 0; k < m.DeCount(de); k++) { line[p * 2] = m.DeX(de, k); line[p * 2 + 1] = m.DeZ(de, k); p++; }
+            for (int k = 0; k < m.DeCount(de); k++) { line[p * 2] = m.DeX(de, k); line[p * 2 + 1] = m.DeZ(de, k); lift[p] = (byte)(m.DeLift(de, k) * 2); p++; }
         }
-        mapView.PlanPts = line; mapView.PlanEdgePt = starts.Select(v => (int)v).ToArray();
+        mapView.PlanPts = line; mapView.PlanLift = lift; mapView.PlanEdgePt = starts.Select(v => (int)v).ToArray();
         plan.LengthM = len; plan.TimeS = time;
         var pins = new List<(float X, float Z, string Label, Color C)> { (start.X, start.Z, "S", Color.FromRgb(30, 150, 80)) };
         for (int i = 0; i < plan.Stops.Count; i++) pins.Add((plan.Stops[i].X, plan.Stops[i].Z, (i + 1).ToString(CultureInfo.InvariantCulture), Color.FromRgb(25, 118, 210)));

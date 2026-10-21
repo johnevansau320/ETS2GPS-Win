@@ -12,9 +12,9 @@ namespace Ets2Gps.MapBuilder;
 public static class BuildMap
 {
     /// <summary>Changes whenever the builder's output could change (it triggers an automatic rebuild).</summary>
-    public const int FormatVersion = 17;
+    public const int FormatVersion = 18;
     /// <summary>The binary layout the app reads.</summary>
-    public const int FileVersion = 9;
+    public const int FileVersion = 10;
 
     const double LaneW = 4.5;
     static readonly Dictionary<uint, int> SpawnPoi = new() { [3] = 1, [4] = 2, [5] = 3, [6] = 4, [7] = 5, [8] = 8, [15] = 6, [16] = 7 };
@@ -82,6 +82,14 @@ public static class BuildMap
         return pts;
     }
 
+    /// <summary>Height along a road between two nodes: a smooth step from the first node's height to the second's.</summary>
+    static List<double> RoadYs(double y0, double y1, int n)
+    {
+        var ys = new List<double>(n);
+        for (int i = 0; i < n; i++) { double t = (double)i / (n - 1); ys.Add(y0 + (y1 - y0) * (t * t * (3 - 2 * t))); }
+        return ys;
+    }
+
     static (double, double) QuatDir(double w, double x, double y, double z)
     {
         double theta = 2.0 * Math.Atan2(y, w);
@@ -91,10 +99,18 @@ public static class BuildMap
     sealed class Curve
     {
         public (double X, double Z) S, E;
+        public double SY, EY;
         public (double X, double Z) SDir, EDir;
         public double Len;
         public List<int> Next = new();
         public int Pc;
+    }
+
+    static List<double> CurveYs(Curve c, int steps)
+    {
+        var ys = new List<double>(steps);
+        for (int i = 0; i < steps; i++) { double t = (double)i / (steps - 1); ys.Add(c.SY + (c.EY - c.SY) * (t * t * (3 - 2 * t))); }
+        return ys;
     }
 
     static List<(double X, double Z)> CurvePoints(Curve c, int steps)
@@ -127,7 +143,7 @@ public static class BuildMap
             if (nxt.Any(v => v >= pf.NavCount) || nc < 0 || nc > 4 || pc < 0 || pc > 4) return null;
             curves.Add(new Curve
             {
-                S = (sx, sz), E = (ex, ez), SDir = QuatDir(sq[0], sq[1], sq[2], sq[3]), EDir = QuatDir(eq[0], eq[1], eq[2], eq[3]),
+                S = (sx, sz), E = (ex, ez), SY = Bin.F32(d, r + 0x14), EY = Bin.F32(d, r + 0x20), SDir = QuatDir(sq[0], sq[1], sq[2], sq[3]), EDir = QuatDir(eq[0], eq[1], eq[2], eq[3]),
                 Len = Math.Max(ln, 0.01), Next = nxt.Where(v => v >= 0).ToList(), Pc = pc,
             });
         }
@@ -242,7 +258,7 @@ public static class BuildMap
     }
 
     /// <summary>Chains of nav curves from a prefab entry node to an exit node: (entry, exit) -> (length, local points).</summary>
-    static Dictionary<(int, int), (double Len, List<(double X, double Z)> Pts)> PrefabPaths(Prefab pf, List<Curve> curves)
+    static Dictionary<(int, int), (double Len, List<(double X, double Z)> Pts)> PrefabPaths(Prefab pf, List<Curve> curves, Dictionary<(int, int), List<double>>? ysOut = null)
     {
         var best = new Dictionary<(int, int), (double Len, List<int> Chain)>();
         var starts = new List<int>();
@@ -277,14 +293,16 @@ public static class BuildMap
         var output = new Dictionary<(int, int), (double, List<(double X, double Z)>)>();
         foreach (var (key, (length, ch)) in best)
         {
-            var pts = new List<(double X, double Z)>();
+            var pts = new List<(double X, double Z)>(); var yl = new List<double>();
             foreach (int k in ch)
             {
                 var c = curves[k];
-                var seg = CurvePoints(c, Math.Max(2, Math.Min(10, (int)(c.Len / 5) + 2)));
-                if (pts.Count == 0) pts.AddRange(seg); else pts.AddRange(seg.Skip(1));
+                int steps = Math.Max(2, Math.Min(10, (int)(c.Len / 5) + 2));
+                var seg = CurvePoints(c, steps); var sy = CurveYs(c, steps);
+                if (pts.Count == 0) { pts.AddRange(seg); yl.AddRange(sy); } else { pts.AddRange(seg.Skip(1)); yl.AddRange(sy.Skip(1)); }
             }
             output[key] = (length, pts);
+            if (ysOut != null) ysOut[key] = yl;
         }
         return output;
     }
@@ -347,6 +365,7 @@ public static class BuildMap
     sealed class Collected
     {
         public Dictionary<ulong, (double X, double Z, double Rot)> Nodes = new();
+        public Dictionary<ulong, double> NodeY = new();
         public Dictionary<ulong, (ulong Uid, ulong Su, ulong Eu, ulong Look, bool Secret, byte Dlc, bool Hidden)> Roads = new();
         public Dictionary<ulong, (ulong Uid, ulong PrefabTok, List<ulong> Nodes, int Origin, bool Secret, byte Dlc, bool Hidden)> Prefabs = new();
         public Dictionary<ulong, (ulong Tok, double X, double Z)> Cities = new();
@@ -389,6 +408,7 @@ public static class BuildMap
                 if (s.Version < 884) { skipped++; continue; }
                 if (!s.Ok) { bad++; log($"  ! {f}: did not parse to end of file; ignoring"); continue; }
                 foreach (var kv in s.Nodes) col.Nodes.TryAdd(kv.Key, kv.Value);
+                foreach (var kv in s.NodeY) col.NodeY.TryAdd(kv.Key, kv.Value);
                 foreach (var r in s.Roads) col.Roads[r.Uid] = r;
                 foreach (var p in s.Prefabs) col.Prefabs[p.Uid] = p;
                 foreach (var c in s.Cities) col.Cities.TryAdd(c.Tok, c);
@@ -407,7 +427,7 @@ public static class BuildMap
 
     sealed class GEdge
     {
-        public ulong A, B; public int Flags, Cls, Speed; public List<(double X, double Z)> Pts = new(); public uint Jid; public int Wq;
+        public ulong A, B; public int Flags, Cls, Speed; public List<(double X, double Z)> Pts = new(); public List<double>? Ys; public uint Jid; public int Wq;
     }
 
     /// <summary>Builds etsmap.bin (zlib-compressed) into outPath.</summary>
@@ -443,6 +463,7 @@ public static class BuildMap
             double width = rl.Offset + LaneW * total;
             var pts = RoadPoints(sn, en);
             if (secret) continue;
+            var rys = RoadYs(col.NodeY.GetValueOrDefault(su), col.NodeY.GetValueOrDefault(eu), pts.Count);
             int wq = Math.Min(255, (int)(Math.Max(width, 4.5) * 4));
             int dt = dl + dr;
             int cls = dt >= 6 ? 2 : dt >= 4 ? 1 : 0;
@@ -450,12 +471,13 @@ public static class BuildMap
             bool fwd = dr > 0, bwd = dl > 0;
             if (fwd != bwd && rl.Side.Length > 0) { fwd = rl.Side == "R"; bwd = rl.Side == "L"; }
             int hbit = hid ? 16 : 0;
-            if (fwd && bwd) graph.Add(new GEdge { A = su, B = eu, Flags = 1 | (rl.Grade << 1) | hbit, Cls = cls, Speed = speed, Pts = pts, Jid = 0, Wq = wq });
-            else if (fwd) { oneway.Add((graph.Count, look)); graph.Add(new GEdge { A = su, B = eu, Flags = (rl.Grade << 1) | hbit, Cls = cls, Speed = speed, Pts = pts, Jid = 0, Wq = wq }); }
-            else if (bwd) { oneway.Add((graph.Count, look)); var rp = new List<(double, double)>(pts); rp.Reverse(); graph.Add(new GEdge { A = eu, B = su, Flags = (rl.Grade << 1) | hbit, Cls = cls, Speed = speed, Pts = rp, Jid = 0, Wq = wq }); }
+            if (fwd && bwd) graph.Add(new GEdge { A = su, B = eu, Flags = 1 | (rl.Grade << 1) | hbit, Cls = cls, Speed = speed, Pts = pts, Ys = rys, Jid = 0, Wq = wq });
+            else if (fwd) { oneway.Add((graph.Count, look)); graph.Add(new GEdge { A = su, B = eu, Flags = (rl.Grade << 1) | hbit, Cls = cls, Speed = speed, Pts = pts, Ys = rys, Jid = 0, Wq = wq }); }
+            else if (bwd) { oneway.Add((graph.Count, look)); var rp = new List<(double, double)>(pts); rp.Reverse(); var rrys = new List<double>(rys); rrys.Reverse(); graph.Add(new GEdge { A = eu, B = su, Flags = (rl.Grade << 1) | hbit, Cls = cls, Speed = speed, Pts = rp, Ys = rrys, Jid = 0, Wq = wq }); }
         }
 
         int npref = 0, nonav = 0, pdone = 0;
+        int dbgN = 0, dbgBig = 0; double dbgSum0 = 0, dbgSum1 = 0;
         foreach (var (uid, ptok, unodes, origin, secret, _, hid) in prefabs)
         {
             if ((++pdone & 0x3FF) == 0) progress?.Invoke("Building the road network…", (double)pdone / prefabs.Count);
@@ -479,7 +501,9 @@ public static class BuildMap
             if (pf.NavCount == 0) continue;
             var curves = ParseCurves(pf);
             if (curves == null || curves.Count == 0) { nonav++; continue; }
-            var paths = PrefabPaths(pf, curves);
+            var pathYs = new Dictionary<(int, int), List<double>>();
+            var paths = PrefabPaths(pf, curves, pathYs);
+            double dy = col.NodeY.GetValueOrDefault(unodes[0]) - (origin < pf.NodeY.Count ? pf.NodeY[origin] : 0);
             var plane = PrefabLanes(pf, curves);
             string path = defs.PrefabPaths.TryGetValue(ptok, out var pp) ? pp.ToLowerInvariant() : "";
             // unique id per placed junction (the game's item uids collide when truncated to 32 bits)
@@ -494,10 +518,20 @@ public static class BuildMap
                 if (nn != pf.Nodes.Count) continue;
                 // item node k corresponds to prefab node (origin + k) % n
                 ulong ua = unodes[PyMod(a - origin, nn)], ub = unodes[PyMod(b - origin, nn)];
-                graph.Add(new GEdge { A = ua, B = ub, Flags = hid ? 16 : 0, Cls = 3, Speed = 40, Pts = lpts.Select(Tf).ToList(), Jid = jid, Wq = 30 });
+                List<double>? jys = null;
+                if (pathYs.TryGetValue((a, b), out var pyl) && pyl.Count == lpts.Count && pyl.Count >= 2 && col.NodeY.TryGetValue(ua, out var yA) && col.NodeY.TryGetValue(ub, out var yB))
+                {
+                    // anchor both ends on the heights of the nodes the roads attach to; the shape in between comes from the prefab
+                    double e0 = yA - (pyl[0] + dy), e1 = yB - (pyl[^1] + dy);
+                    dbgN++; dbgSum0 += Math.Abs(e0); dbgSum1 += Math.Abs(e1); if (Math.Abs(e0) > 2) dbgBig++;
+                    jys = new List<double>(pyl.Count);
+                    for (int q = 0; q < pyl.Count; q++) { double t = (double)q / (pyl.Count - 1); jys.Add(pyl[q] + dy + e0 * (1 - t) + e1 * t); }
+                }
+                graph.Add(new GEdge { A = ua, B = ub, Flags = hid ? 16 : 0, Cls = 3, Speed = 40, Pts = lpts.Select(Tf).ToList(), Ys = jys, Jid = jid, Wq = 30 });
                 if (plane.TryGetValue((a, b), out var ln)) lanesOf[(ua, ub, jid)] = ln;
             }
         }
+        log($"junction height anchor: {dbgN} paths, mean start error {dbgSum0 / Math.Max(1, dbgN):0.00} m, end {dbgSum1 / Math.Max(1, dbgN):0.00} m, {dbgBig} over 2 m");
         log($"prefabs used: {npref} ({nonav} with unreadable nav data); {graph.Count} graph edges");
 
         // Self-check one-way directions: at a node that junction paths only enter (or only leave), the road attached to it must
@@ -516,7 +550,7 @@ public static class BuildMap
         foreach (var (gi, look) in oneway) score[look] = score.GetValueOrDefault(look) + Vote(graph[gi].B, true) + Vote(graph[gi].A, false);
         var flip = score.Where(kv => kv.Value <= -3).Select(kv => kv.Key).ToHashSet();
         foreach (var (gi, look) in oneway)
-            if (flip.Contains(look)) { var e = graph[gi]; (e.A, e.B) = (e.B, e.A); e.Pts.Reverse(); }
+            if (flip.Contains(look)) { var e = graph[gi]; (e.A, e.B) = (e.B, e.A); e.Pts.Reverse(); e.Ys?.Reverse(); }
         if (flip.Count > 0) log($"flipped one-way direction for {flip.Count} road types");
 
         // Roundabout status per placed junction. An arm only counts as connected if a drivable road, or another junction,
@@ -711,6 +745,27 @@ public static class BuildMap
         w.Write((uint)cityCc.Count);
         foreach (var (id, a2) in cityCc) { Str(id); Str(a2); }
         log($"{borders.Count} border markers, {cityCc.Count} city countries");
+        // file version 10: how far each road point is above the road it crosses (flyovers, bridges, stacked interchanges)
+        progress?.Invoke("Finding flyovers and bridges…", 0);
+        var liftEdges = new List<Lift.Edge>(graph.Count);
+        foreach (var e in graph)
+        {
+            int cnt = Math.Min(255, e.Pts.Count);
+            bool ok = e.Ys != null && e.Ys.Count >= cnt && cnt >= 2;
+            liftEdges.Add(new Lift.Edge
+            {
+                A = e.A, B = e.B,
+                X = ok ? e.Pts.Take(cnt).Select(p => p.X).ToArray() : Array.Empty<double>(),
+                Z = ok ? e.Pts.Take(cnt).Select(p => p.Z).ToArray() : Array.Empty<double>(),
+                Y = ok ? e.Ys!.Take(cnt).ToArray() : Array.Empty<double>(),
+            });
+        }
+        var lifts = Lift.Compute(liftEdges);
+        int liftedEdges = lifts.Count(l => l != null);
+        w.Write((uint)liftedEdges);
+        for (int gi = 0; gi < lifts.Length; gi++)
+            if (lifts[gi] is { } lb) { w.Write((uint)gi); w.Write(lb); }
+        log($"{liftedEdges} road pieces on flyovers / bridges");
         if (assetsPath != null)
         {
             try { AssetPack.Build(fs, assetsPath, log); }

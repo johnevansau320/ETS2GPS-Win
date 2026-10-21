@@ -73,6 +73,7 @@ public sealed partial class MainWindow
         motion.Update(s, now);
         mapView.HasFix = s.Connected && (s.X != 0 || s.Z != 0);
         mapView.SpeedKmh = s.SpeedKmh;
+        cruise.Update(s, now);
         statusText.Text = !s.Connected ? "Telemetry connected - waiting for the game" : s.Paused ? "Game paused" : place;
         speedText.Text = Math.Round(Math.Max(0, s.SpeedKmh)).ToString(CultureInfo.InvariantCulture);
         if (s.SpeedLimitKmh > 0) { limitText.Text = s.SpeedLimitKmh.ToString(CultureInfo.InvariantCulture); limitBox.Visibility = Visibility.Visible; } else limitBox.Visibility = Visibility.Hidden;
@@ -124,7 +125,7 @@ public sealed partial class MainWindow
             string what = n.Instruction(next);
             SetManeuver(next, n.ShortDistance(st.DistToNextM), char.ToUpperInvariant(what[0]) + what[1..] + (next.Towards != null ? " towards " + next.Towards : ""), st.Following);
         }
-        if (!tripOpen && st.Lanes != null && st.LanesDistM * distScale < LaneShowM) SetLaneUi(st.Lanes, n.ShortDistance(st.LanesDistM)); else SetLaneUi(null);
+        if (!tripOpen && st.Lanes != null && st.LanesDistM * cfg.DistScale < LaneShowM) SetLaneUi(st.Lanes, n.ShortDistance(st.LanesDistM)); else SetLaneUi(null);
         UpdatePace(n);
         float realMin = totS / paceRatio / 60f, gameMin = realMin * TimeScale;
         routeEtaGameMin = gameMin;
@@ -225,18 +226,18 @@ public sealed partial class MainWindow
                     }
                 int total = 0;
                 foreach (int de in res.Edges) total += m.DeCount(de);
-                var pts = new float[total * 2]; var starts = new int[res.Edges.Length];
+                var pts = new float[total * 2]; var lift = new byte[total]; var starts = new int[res.Edges.Length];
                 int p = 0;
                 for (int i = 0; i < res.Edges.Length; i++)
                 {
                     int de = res.Edges[i]; starts[i] = p;
-                    for (int k = 0; k < m.DeCount(de); k++) { pts[p * 2] = m.DeX(de, k); pts[p * 2 + 1] = m.DeZ(de, k); p++; }
+                    for (int k = 0; k < m.DeCount(de); k++) { pts[p * 2] = m.DeX(de, k); pts[p * 2 + 1] = m.DeZ(de, k); lift[p] = (byte)(m.DeLift(de, k) * 2); p++; }
                 }
                 n.DistScale = distScale;
                 n.ArriveWord = legIsStop ? "your waypoint" : "your destination";
                 afterM = am; afterS = asec;
                 n.SetRoute(res, remaining);
-                mapView.RoutePts = pts; mapView.RouteEdgePt = starts; mapView.RouteIdx = 0;
+                mapView.RoutePts = pts; mapView.RouteLift = lift; mapView.RouteEdgePt = starts; mapView.RouteIdx = 0;
                 SetBannerMessage(null);
                 if (announce)
                     voice.Say(legIsStop

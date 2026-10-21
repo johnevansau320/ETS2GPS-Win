@@ -237,6 +237,8 @@ public sealed class Prefab
 {
     public int Version, NavCount, NavOff;
     public List<(double X, double Z, double Rx, double Rz, int Lanes)> Nodes = new();
+    /// <summary>Height (metres) of each node in the prefab's own frame, and of each nav curve's start and end.</summary>
+    public List<double> NodeY = new();
     public List<(double X, double Z, uint Type)> Spawns = new();
     public List<(uint Id, ulong Action, double X, double Z)> Triggers = new();
     public byte[] Raw = Array.Empty<byte>();
@@ -273,6 +275,7 @@ public static class PrefabParser
             int lanes = 0, p = b + 0x24;
             for (int k = 0; k < 16; k++) { p += 4; if (Bin.I32(d, p) != -1) lanes++; }
             pf.Nodes.Add((x, z, rx, rz, lanes));
+            pf.NodeY.Add(Bin.F32(d, b + 0x14));
         }
         int sbs = ver >= 24 ? 0x24 : 0x20;
         for (int i = 0; i < spawnCount; i++)
@@ -303,6 +306,7 @@ public sealed class Sector
     public List<(ulong Tok, double X, double Z)> RoadLabels = new();
     public List<(List<ulong> Nodes, uint Color)> Areas = new();
     public Dictionary<ulong, (double X, double Z, double Rot)> Nodes = new();
+    public Dictionary<ulong, double> NodeY = new();
     public bool Ok;
     public int Version;
 }
@@ -534,6 +538,7 @@ public static class SectorParser
             double rx = Bin.F32(d, b + 0x14), rz = Bin.F32(d, b + 0x1C);
             double rot = ((Math.PI - Math.Atan2(rz, rx)) % Math.PI) * 2; // C fmod, like Python's math.fmod
             sec.Nodes[nuid] = (nx, nz, rot);
+            sec.NodeY[nuid] = Bin.I32(d, b + 0x0C) / 256.0;
         }
         o += 0x38 * ncount + 4;
         if (ver >= 891)

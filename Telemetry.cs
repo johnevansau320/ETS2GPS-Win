@@ -31,6 +31,8 @@ public sealed class TruckState
     public float ReportedHeadingDeg;
     public float SpeedKmh;
     public int SpeedLimitKmh;
+    public bool CruiseOn;
+    public float CruiseKmh;             // the cruise control setting
     public string DestCityId = "", DestCity = "", DestCompanyId = "", DestCompany = "";
     public bool HasTrailer;
     public float FuelFraction = -1f;    // 0..1, -1 unknown
@@ -126,6 +128,7 @@ public static class Telemetry
             Connected = Bool(game, "connected"), Paused = Bool(game, "paused"),
             X = (float)Num(pl, "x"), Y = (float)Num(pl, "y"), Z = (float)Num(pl, "z"), ReportedHeadingDeg = (float)Num(pl, "heading"),
             SpeedKmh = (float)Num(truck, "speed"), SpeedLimitKmh = (int)Math.Round(Num(nav, "speedLimit")),
+            CruiseOn = Bool(truck, "cruiseControlOn"), CruiseKmh = (float)Num(truck, "cruiseControlSpeed"),
             DestCityId = destId, DestCity = Str(job, "destinationCity"), DestCompanyId = Str(job, "destinationCompanyId"), DestCompany = Str(job, "destinationCompany"),
             HasTrailer = attached,
             FuelFraction = cap > 0 ? (float)(Num(truck, "fuel") / cap) : -1f,

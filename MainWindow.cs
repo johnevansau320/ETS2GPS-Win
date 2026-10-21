@@ -51,7 +51,7 @@ public sealed partial class MainWindow : Window
     readonly TextBlock altText = Ui.Text("-- m", 44, null, FontWeights.Bold);
     readonly TextBlock toastText = Ui.Text("", 15);
     readonly Button tripBtn = Ui.Button("Job Info", 210, 62, Ui.Accent, 36), modeBtn = Ui.Button("Heavy", 210, 62, null, 36), voiceBtn = Ui.Button("Voice on", 210, 62, null, 36),
-        pinBtn = Ui.Button("Pin on top", 210, 62, null, 36), recentreBtn = Ui.Button("◎  Recentre", 150, 48, new SolidColorBrush(Color.FromRgb(30, 120, 70)), 17);
+        pinBtn = Ui.Button("Pin on top", 210, 62, null, 36), cruiseBtn = Ui.Button("Cruise off", 210, 62, null, 36), recentreBtn = Ui.Button("◎  Recentre", 150, 48, new SolidColorBrush(Color.FromRgb(30, 120, 70)), 17);
     readonly StackPanel menu = new();
     readonly UIElement[] hideOnTrip;
     readonly DispatcherTimer toastTimer = new() { Interval = TimeSpan.FromSeconds(3.5) };
@@ -65,7 +65,8 @@ public sealed partial class MainWindow : Window
     {
         cfg = settings;
         routeMode = RouteMode.ByKey(cfg.RouteMode);
-        distScale = cfg.DistScale;
+        distScale = cfg.RealDistances ? 1f : cfg.DistScale;
+        cruise = new CruiseAssist(() => cfg.CruiseAutoLimit);
         Title = "ETS2 GPS";
         transparentWindow = cfg.Opacity < 0.999;
         if (transparentWindow) AllowsTransparency = true;
@@ -85,7 +86,7 @@ public sealed partial class MainWindow : Window
 
         Content = BuildUi();
         hideOnTrip = new UIElement[] { banner, bottomBar, compass, altBox, zoomBox, statusText, laneHost };
-        UpdateModeButton(); UpdateVoiceButton(); UpdatePinButton();
+        UpdateModeButton(); UpdateVoiceButton(); UpdatePinButton(); UpdateCruiseButton();
         SetBannerMessage(null);
 
         mapView.FreeChanged += f => recentreBtn.Visibility = f && !tripOpen && !planning ? Visibility.Visible : Visibility.Collapsed;
@@ -103,6 +104,29 @@ public sealed partial class MainWindow : Window
         Activated += (_, _) => ApplyAlpha();
         StateChanged += (_, _) => ApplyAlpha();
         Closed += (_, _) => { PersistWindow(); telemetry.Dispose(); server?.Dispose(); voice.Dispose(); };
+        // test hook: --snapshot file.png draws the window to a picture once the map and the truck are known, then quits
+        var snapPath = ArgAfter("--snapshot");
+        if (snapPath != null)
+        {
+            var st = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) }; int ticks = 0;
+            st.Tick += (_, _) =>
+            {
+                if (mapView.Map == null || !mapView.HasFix) return;
+                if (++ticks < (int.TryParse(Environment.GetEnvironmentVariable("SNAP_TICKS"), out var wt) ? wt : 8)) { mapView.InvalidateVisual(); return; }
+                st.Stop();
+                try
+                {
+                    var el = (FrameworkElement)Content;
+                    var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)el.ActualWidth, (int)el.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                    rtb.Render(el);
+                    var enc = new System.Windows.Media.Imaging.PngBitmapEncoder(); enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                    using var fsn = File.Create(snapPath); enc.Save(fsn);
+                }
+                catch (Exception e) { File.WriteAllText(snapPath + ".err.txt", e.ToString()); }
+                Close();
+            };
+            st.Start();
+        }
     }
 
     static bool Fits(double l, double t) =>
@@ -185,6 +209,7 @@ public sealed partial class MainWindow : Window
         Add(Ui.Button("Plan", 210, 62, null, 36), ShowPlanner);
         Add(modeBtn, CycleMode);
         Add(voiceBtn, ToggleVoice);
+        Add(cruiseBtn, () => SetCruiseFollows(!cfg.CruiseAutoLimit, true));
         Add(Ui.Button("POI", 210, 62, null, 36), ShowPoiPicker);
         Add(Ui.Button("Job", 210, 62, null, 36), RouteToJob);
         Add(Ui.Button("Stop", 210, 62, null, 36), CancelRoute);
@@ -194,6 +219,31 @@ public sealed partial class MainWindow : Window
         Panel.SetZIndex(menuScroll, 5);
         root.Children.Add(menuScroll);
         menuHost = menuScroll;
+
+        // auto-hide: the column fades away when the mouse has been elsewhere for a few seconds; touch the grip on the left edge to bring it back
+        var grip = new Border { Width = 5, Height = 90, CornerRadius = new CornerRadius(3), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(3, 0, 0, 0), Background = new SolidColorBrush(Color.FromArgb(150, 255, 255, 255)), IsHitTestVisible = false };
+        var edge = new Border { Width = 24, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Stretch, Margin = new Thickness(0, 184, 0, 152), Background = Brushes.Transparent, Child = grip, Visibility = Visibility.Collapsed };
+        Panel.SetZIndex(edge, 4);
+        root.Children.Add(edge);
+        bool menuShown = true; long menuIdle = Environment.TickCount64;
+        void SetMenu(bool show)
+        {
+            if (menuShown == show) return;
+            menuShown = show;
+            menuScroll.IsHitTestVisible = show;
+            edge.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
+            menuScroll.BeginAnimation(OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(show ? 1 : 0, TimeSpan.FromMilliseconds(220)));
+        }
+        edge.MouseEnter += (_, _) => { menuIdle = Environment.TickCount64; SetMenu(true); };
+        edge.MouseDown += (_, _) => { menuIdle = Environment.TickCount64; SetMenu(true); };
+        var menuTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        menuTimer.Tick += (_, _) =>
+        {
+            long now = Environment.TickCount64;
+            if (menuScroll.IsMouseOver || menuScroll.IsKeyboardFocusWithin) menuIdle = now;
+            else if (menuShown && now - menuIdle > 4500) SetMenu(false);
+        };
+        menuTimer.Start();
 
         // ---- right side: compass, altitude, zoom, recentre, status
         compass.HorizontalAlignment = HorizontalAlignment.Right; compass.VerticalAlignment = VerticalAlignment.Top; compass.Margin = new Thickness(0, 230, 4, 0);
@@ -369,6 +419,8 @@ public sealed partial class MainWindow : Window
         {
             server = new BuiltInServer(cfg, voice);
             if (!server.Start()) { Toast(server.Problem ?? "The built-in server could not start"); server = new BuiltInServer(cfg, voice); }
+            server.CruiseJson = CruiseJson;
+            server.CruiseSet = on => Dispatcher.BeginInvoke(new Action(() => SetCruiseFollows(on, true)));
         }
         CompositionTarget.Rendering += OnFrame;
         tripTimer.Start();
@@ -414,6 +466,20 @@ public sealed partial class MainWindow : Window
     }
 
     void UpdateModeButton() => modeBtn.Content = routeMode.Short;
+    readonly CruiseAssist cruise;   // on by default
+
+    void UpdateCruiseButton() => cruiseBtn.Content = cfg.CruiseAutoLimit ? "Cruise auto" : "Cruise off";
+
+    /// <summary>Turns "cruise control follows the speed limit" on or off (menu button, tablet / web apps).</summary>
+    void SetCruiseFollows(bool on, bool say)
+    {
+        cfg.CruiseAutoLimit = on; cfg.Save();
+        UpdateCruiseButton();
+        if (say) Toast(on ? "Cruise control will follow the speed limit while the game is in front" : "Cruise control stays where you set it");
+    }
+
+    string CruiseJson() => System.Text.Json.JsonSerializer.Serialize(new { on = cfg.CruiseAutoLimit, engaged = truck?.CruiseOn ?? false, limit = truck?.SpeedLimitKmh ?? 0, setting = Math.Round(truck?.CruiseKmh ?? 0) });
+
     void UpdateVoiceButton() => voiceBtn.Content = voice.Enabled ? "Voice on" : "Voice off";
     void UpdatePinButton() { pinBtn.Content = Topmost ? "On top ✓" : "Pin on top"; pinBtn.Background = Topmost ? Ui.Accent : Ui.Btn; }
 

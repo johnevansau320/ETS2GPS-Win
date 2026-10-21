@@ -16,11 +16,14 @@ public sealed class MapControl : FrameworkElement
     public bool HasFix;
     public float[] RoutePts = Array.Empty<float>();   // x,z pairs
     public int[] RouteEdgePt = Array.Empty<int>();    // pair index where each route edge starts
+    public byte[] RouteLift = Array.Empty<byte>();    // per route point: height above the road it crosses (0.5 m units)
     public int RouteIdx;
     public List<(float X, float Z)> Stops = new();
     public Maneuver? NextManeuver;
     public HashSet<int> ShowPoiTypes = new() { Poi.Fuel, Poi.Parking, Poi.Service, Poi.Weigh, Poi.Garage, Poi.Dealer, Poi.Ferry, Poi.Train };
-    public float UserZoom = 1f;
+    /// <summary>The zoom the map opens at and returns to on a double-click: four + button steps (x1.3 each) in from the old default of 1.</summary>
+    public const float DefaultZoom = 2.8561f;
+    public float UserZoom = DefaultZoom;
     public bool Free { get; private set; }
     public event Action<bool>? FreeChanged;
     public event Action<float, float>? PointRequested;
@@ -47,22 +50,31 @@ public sealed class MapControl : FrameworkElement
     static readonly Brush RouteBrush = F(Color.FromRgb(36, 132, 255)), CasingBrush = F(Color.FromArgb(235, 255, 255, 255));
     static readonly Brush CityBrush = F(Color.FromArgb(230, 220, 226, 236));
     static readonly Brush MsgBrush = F(Color.FromArgb(220, 220, 226, 236));
-    static readonly Dictionary<int, Color> PoiColors = new()
+    // point-of-interest badges: a coloured rounded square with a white pictogram (see PoiIcons)
+    static readonly Dictionary<int, Geometry> PoiGeo = PoiIcons.Paths.ToDictionary(kv => kv.Key, kv => { var g = Geometry.Parse(kv.Value); g.Freeze(); return g; });
+    static readonly Dictionary<int, Brush> PoiFill = PoiIcons.Colors.ToDictionary(kv => kv.Key, kv => F(Color.FromRgb(kv.Value.R, kv.Value.G, kv.Value.B)));
+    static readonly Pen PoiEdge = new(new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)), 2.2);
+    static readonly Brush PoiShadow = F(Color.FromArgb(90, 0, 0, 0));
+
+    void DrawPoi(DrawingContext dc, int type, double x, double y, double r)
     {
-        [Poi.Fuel] = Color.FromRgb(230, 120, 20), [Poi.Parking] = Color.FromRgb(40, 110, 220), [Poi.Service] = Color.FromRgb(120, 130, 145),
-        [Poi.Weigh] = Color.FromRgb(150, 90, 190), [Poi.Dealer] = Color.FromRgb(190, 60, 60), [Poi.Garage] = Color.FromRgb(60, 140, 120),
-        [Poi.Recruit] = Color.FromRgb(160, 140, 40), [Poi.Hotel] = Color.FromRgb(90, 90, 170),
-        [Poi.Ferry] = Color.FromRgb(0, 120, 170), [Poi.Train] = Color.FromRgb(110, 110, 124),
-    };
-    static readonly Dictionary<int, string> PoiLetters = new()
-    {
-        [Poi.Fuel] = "F", [Poi.Parking] = "P", [Poi.Service] = "S", [Poi.Weigh] = "W", [Poi.Dealer] = "D", [Poi.Garage] = "G", [Poi.Recruit] = "R", [Poi.Hotel] = "H", [Poi.Ferry] = "B", [Poi.Train] = "T",
-    };
+        var box = new Rect(x - r, y - r, 2 * r, 2 * r);
+        dc.DrawRoundedRectangle(PoiShadow, null, new Rect(box.X, box.Y + r * 0.14, box.Width, box.Height), r * 0.42, r * 0.42);
+        dc.DrawRoundedRectangle(PoiFill.GetValueOrDefault(type, Brushes.Gray), PoiEdge, box, r * 0.42, r * 0.42);
+        if (!PoiGeo.TryGetValue(type, out var geo)) return;
+        double k = 2 * r * 0.66 / 24;
+        dc.PushTransform(new TranslateTransform(x - 12 * k, y - 12 * k));
+        dc.PushTransform(new ScaleTransform(k, k));
+        dc.DrawGeometry(Brushes.White, null, geo);
+        dc.Pop(); dc.Pop();
+    }
     static readonly Typeface Face = new(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
     static readonly Typeface FaceNormal = new("Segoe UI");
     static Brush F(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
 
     readonly List<int>[] buckets = { new(), new(), new(), new() };
+    readonly List<int>[] elevBuckets = { new(), new(), new(), new() };
+    static readonly Brush DeckShadow = F(Color.FromArgb(105, 6, 8, 14)), RouteGhost = F(Color.FromArgb(120, 36, 132, 255));
     readonly List<Point> pts = new();
     readonly Dictionary<string, FormattedText> textCache = new();
 
@@ -112,7 +124,7 @@ public sealed class MapControl : FrameworkElement
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonDown(e);
-        if (e.ClickCount == 2 && !PlanMode) { UserZoom = 1f; InvalidateVisual(); return; }
+        if (e.ClickCount == 2 && !PlanMode) { UserZoom = DefaultZoom; InvalidateVisual(); return; }
         dragging = true; moved = false; downPos = dragLast = e.GetPosition(this);
         CaptureMouse();
     }
@@ -211,6 +223,7 @@ public sealed class MapControl : FrameworkElement
     public bool PlanMode;
     public float[] PlanPts = Array.Empty<float>();
     public int[] PlanEdgePt = Array.Empty<int>();
+    public byte[] PlanLift = Array.Empty<byte>();
     public List<(float X, float Z, string Label, Color C)> Pins = new();
 
     public void ShowPlan(float cx, float cz, float zoom)
@@ -221,7 +234,7 @@ public sealed class MapControl : FrameworkElement
 
     public void HidePlan()
     {
-        PlanMode = false; Free = false; Pins = new(); PlanPts = Array.Empty<float>(); PlanEdgePt = Array.Empty<int>(); UserZoom = 1f;
+        PlanMode = false; Free = false; Pins = new(); PlanPts = Array.Empty<float>(); PlanEdgePt = Array.Empty<int>(); PlanLift = Array.Empty<byte>(); UserZoom = DefaultZoom;
         InvalidateVisual();
     }
     public float SpeedKmh;
@@ -318,108 +331,143 @@ public sealed class MapControl : FrameworkElement
                 dc.DrawGeometry(AreaBrush[Math.Min(3, (int)a.Color)], null, g);
             }
 
-        // roads: outline pass, then fill pass (per class, per depth band so far roads get thinner)
-        var sets = new BandSet[4];
+        // roads: outline pass, then fill pass (per class, per depth band so far roads get thinner).
+        // Roads on flyovers and bridges are drawn after the rest, raised and with a shadow, so the roads below pass underneath.
+        foreach (var l in elevBuckets) l.Clear();
+        bool hasLift = m.EHasLift.Length > 0;
+        if (hasLift)
+            for (int cls = 0; cls < 4; cls++)
+            {
+                var bl = buckets[cls]; int keep = 0;
+                for (int i = 0; i < bl.Count; i++) { int e = bl[i]; if (m.EHasLift[e]) elevBuckets[cls].Add(e); else bl[keep++] = e; }
+                bl.RemoveRange(keep, bl.Count - keep);
+            }
+        double liftK = tilted ? s * Math.Sin(tilt) : 0;   // screen px for one metre of height
         var ex = new double[260]; var ey = new double[260]; var es = new double[260];
         var run = new List<Point>();
-        foreach (int cls in new[] { 3, 0, 1, 2 })
+        // mode 0: on the ground, 1: raised deck, 2: its shadow on the ground
+        void EdgeRuns(BandSet set, int e, int mode)
         {
-            var set = sets[cls] = new BandSet();
-            foreach (int e in buckets[cls])
+            int a = m.EPtStart[e], b = m.EPtStart[e + 1], n = Math.Min(b - a, 255);
+            for (int i = 0; i < n; i++)
             {
-                int a = m.EPtStart[e], b = m.EPtStart[e + 1], n = Math.Min(b - a, 255);
-                for (int i = 0; i < n; i++) { var q = P(m.PtX[a + i], m.PtZ[a + i]); ex[i] = q.X; ey[i] = q.Y; es[i] = q.Sc; }
-                if (!tilted)
+                var q = P(m.PtX[a + i], m.PtZ[a + i]);
+                double qx = q.X, qy = q.Y;
+                if (mode != 0)
                 {
-                    run.Clear();
-                    for (int i = 0; i < n; i++) run.Add(new Point(ex[i], ey[i]));
-                    set.Run(0, run);
-                    continue;
+                    double lf = 0.5 * m.PtLift[a + i];
+                    if (mode == 1) qy -= lf * liftK * q.Sc;
+                    else if (!tilted) { double o = Math.Min(12, lf * s * 0.3); qx += o; qy += o; }
                 }
-                int cur = -1; run.Clear();
-                for (int i = 0; i + 1 < n; i++)
-                {
-                    double sc = (es[i] + es[i + 1]) / 2;
-                    if (sc < 0.28) { if (run.Count > 1) set.Run(cur, run); run.Clear(); cur = -1; continue; }
-                    int bd = Band(sc);
-                    if (bd != cur) { if (run.Count > 1) set.Run(cur, run); run.Clear(); run.Add(new Point(ex[i], ey[i])); cur = bd; }
-                    run.Add(new Point(ex[i + 1], ey[i + 1]));
-                }
-                if (run.Count > 1) set.Run(cur, run);
+                ex[i] = qx; ey[i] = qy; es[i] = q.Sc;
             }
+            if (!tilted)
+            {
+                run.Clear();
+                for (int i = 0; i < n; i++) run.Add(new Point(ex[i], ey[i]));
+                set.Run(0, run);
+                return;
+            }
+            int cur = -1; run.Clear();
+            for (int i = 0; i + 1 < n; i++)
+            {
+                double sc = (es[i] + es[i + 1]) / 2;
+                if (sc < 0.28) { if (run.Count > 1) set.Run(cur, run); run.Clear(); cur = -1; continue; }
+                int bd = Band(sc);
+                if (bd != cur) { if (run.Count > 1) set.Run(cur, run); run.Clear(); run.Add(new Point(ex[i], ey[i])); cur = bd; }
+                run.Add(new Point(ex[i + 1], ey[i + 1]));
+            }
+            if (run.Count > 1) set.Run(cur, run);
         }
         double Wd(int cls, int band) => Math.Max(WidthsM[cls] * s, cls == 2 ? 3.4 : 2.4) * BandFactor[band];
-        // casing needs its own geometry copy: build twice from the same runs
-        var casingSets = sets;
-        var fillSets = new BandSet[4];
-        // (BandSet geometries are consumed when drawn, so rebuild the fill from the buckets)
-        foreach (int cls in new[] { 3, 0, 1, 2 }) casingSets[cls].Draw(dc, CasingBrushes[cls], b => Wd(cls, b) + 2.6);
-        foreach (int cls in new[] { 3, 0, 1, 2 })
+        var order = new[] { 3, 0, 1, 2 };
+        void DrawRoads(List<int>[] bk, int mode)
         {
-            var set = fillSets[cls] = new BandSet();
-            foreach (int e in buckets[cls])
+            if (mode == 2)
             {
-                int a = m.EPtStart[e], b = m.EPtStart[e + 1], n = Math.Min(b - a, 255);
-                for (int i = 0; i < n; i++) { var q = P(m.PtX[a + i], m.PtZ[a + i]); ex[i] = q.X; ey[i] = q.Y; es[i] = q.Sc; }
-                if (!tilted)
+                foreach (int cls in order)
                 {
-                    run.Clear();
-                    for (int i = 0; i < n; i++) run.Add(new Point(ex[i], ey[i]));
-                    set.Run(0, run);
-                    continue;
+                    if (bk[cls].Count == 0) continue;
+                    var set = new BandSet();
+                    foreach (int e in bk[cls]) EdgeRuns(set, e, 2);
+                    set.Draw(dc, DeckShadow, b => Wd(cls, b) + 5);
                 }
-                int cur = -1; run.Clear();
-                for (int i = 0; i + 1 < n; i++)
-                {
-                    double sc = (es[i] + es[i + 1]) / 2;
-                    if (sc < 0.28) { if (run.Count > 1) set.Run(cur, run); run.Clear(); cur = -1; continue; }
-                    int bd = Band(sc);
-                    if (bd != cur) { if (run.Count > 1) set.Run(cur, run); run.Clear(); run.Add(new Point(ex[i], ey[i])); cur = bd; }
-                    run.Add(new Point(ex[i + 1], ey[i + 1]));
-                }
-                if (run.Count > 1) set.Run(cur, run);
+                mode = 1;
             }
-            set.Draw(dc, ClassBrush[cls], b => Wd(cls, b));
+            foreach (int cls in order)
+            {
+                if (bk[cls].Count == 0) continue;
+                var set = new BandSet();
+                foreach (int e in bk[cls]) EdgeRuns(set, e, mode);
+                set.Draw(dc, CasingBrushes[cls], b => Wd(cls, b) + 2.6);
+            }
+            foreach (int cls in order)
+            {
+                if (bk[cls].Count == 0) continue;
+                var set = new BandSet();
+                foreach (int e in bk[cls]) EdgeRuns(set, e, mode);
+                set.Draw(dc, ClassBrush[cls], b => Wd(cls, b));
+            }
         }
+        DrawRoads(buckets, 0);
 
         // route
-        var rPts = PlanMode ? PlanPts : RoutePts; var rStart = PlanMode ? PlanEdgePt : RouteEdgePt;
+        var rPts = PlanMode ? PlanPts : RoutePts; var rStart = PlanMode ? PlanEdgePt : RouteEdgePt; var rLift = PlanMode ? PlanLift : RouteLift;
+        if (rLift.Length != rPts.Length / 2) rLift = Array.Empty<byte>();
+        int rFirst = 0, rLast = 0; bool routeLifted = false;
+        double rw = Math.Max(10 * s, 6);
         if (rPts.Length > 0 && rStart.Length > 0)
         {
             int total = rPts.Length / 2;
-            int first = PlanMode ? 0 : rStart[Math.Min(Math.Max(0, RouteIdx - 1), rStart.Length - 1)];
-            int last = PlanMode ? total : Math.Min(total, first + 6000);
-            double w = Math.Max(10 * s, 6);
+            rFirst = PlanMode ? 0 : rStart[Math.Min(Math.Max(0, RouteIdx - 1), rStart.Length - 1)];
+            rLast = PlanMode ? total : Math.Min(total, rFirst + 6000);
+            if (rLift.Length > 0) for (int p = rFirst; p < rLast && !routeLifted; p++) routeLifted = rLift[p] > 0;
+        }
+        // deck = false: route on the ground; deck = true: the parts on flyovers / bridges, raised
+        void DrawRoute(bool deck, bool ghost)
+        {
+            if (rLast <= rFirst) return;
             var casing = new BandSet(); var fill = new BandSet();
             void BuildRoute(BandSet set)
             {
                 int cur = -1; run.Clear();
                 double lx = 0, ly = 0, ls = 1;
-                for (int p = first; p < last; p++)
+                for (int p = rFirst; p < rLast; p++)
                 {
                     var q = P(rPts[p * 2], rPts[p * 2 + 1]);
-                    if (p > first)
+                    double qy = deck && rLift.Length > 0 ? q.Y - 0.5 * rLift[p] * liftK * q.Sc : q.Y;
+                    if (p > rFirst)
                     {
+                        bool segUp = rLift.Length > 0 && (rLift[p] > 0 || rLift[p - 1] > 0);
                         double sc = (ls + q.Sc) / 2;
-                        if (sc < 0.28) { if (run.Count > 1) set.Run(cur, run); run.Clear(); cur = -1; }
+                        if (segUp != deck || sc < 0.28) { if (run.Count > 1) set.Run(cur, run); run.Clear(); cur = -1; }
                         else
                         {
                             int bd = tilted ? Band(sc) : 0;
                             if (bd != cur) { if (run.Count > 1) set.Run(cur, run); run.Clear(); run.Add(new Point(lx, ly)); cur = bd; }
-                            run.Add(new Point(q.X, q.Y));
+                            run.Add(new Point(q.X, qy));
                         }
                     }
-                    lx = q.X; ly = q.Y; ls = q.Sc;
+                    lx = q.X; ly = qy; ls = q.Sc;
                 }
                 if (run.Count > 1) set.Run(cur, run);
             }
-            BuildRoute(casing); BuildRoute(fill);
-            casing.Draw(dc, CasingBrush, b => (w + 5) * BandFactor[b]);
-            fill.Draw(dc, RouteBrush, b => w * BandFactor[b]);
+            if (!ghost) { BuildRoute(casing); BuildRoute(fill); casing.Draw(dc, CasingBrush, b => (rw + 5) * BandFactor[b]); fill.Draw(dc, RouteBrush, b => rw * BandFactor[b]); }
+            else { BuildRoute(fill); fill.Draw(dc, RouteGhost, b => rw * BandFactor[b]); }
+        }
+        DrawRoute(false, false);
+        if (hasLift)
+        {
+            DrawRoads(elevBuckets, 2);
+            if (routeLifted)
+            {
+                DrawRoute(true, false);
+                DrawRoute(false, true);   // the route below shows faintly through the deck above it
+            }
         }
 
         // big area (city) names
-        if (zoom < 1.8)
+        // area (city) names stay on at every zoom level
         {
             double size = Math.Clamp(26 * Math.Pow(zoom, 0.35), PlanMode ? 11 : 20, 34);
             foreach (var city in m.Cities)
@@ -498,27 +546,27 @@ public sealed class MapControl : FrameworkElement
                 float dx = co.X - cx, dz = co.Z - cz;
                 if (dx > radius || dx < -radius || dz > radius || dz < -radius) continue;
                 var p = P(co.X, co.Z);
-                if ((tilted && p.Sc < 0.35) || p.X < -90 || p.X > W + 90 || p.Y < -30 || p.Y > H + 30) continue;
+                if ((tilted && p.Sc < 0.35) || p.X < -130 || p.X > W + 130 || p.Y < -50 || p.Y > H + 50) continue;
                 var logo = Assets?.Logo(co.Id);
                 if (logo != null)
                 {
                     Scaled(p.X, p.Y, Fs(p.Sc), () =>
                     {
-                        var box = new Rect(p.X - 56, p.Y - 16, 112, 32);
-                        dc.DrawRoundedRectangle(PillBrush, null, box, 5, 5);
-                        dc.DrawImage(logo, new Rect(p.X - 52, p.Y - 13, 104, 26));
+                        var box = new Rect(p.X - 112, p.Y - 32, 224, 64);   // logos are drawn at 2x the size of the web and Android ones
+                        dc.DrawRoundedRectangle(PillBrush, null, box, 8, 8);
+                        dc.DrawImage(logo, new Rect(p.X - 104, p.Y - 26, 208, 52));
                     });
                     continue;
                 }
                 string name = m.CompanyNames.TryGetValue(co.Id, out var nm2) ? nm2 : co.Id;
-                var ft = Text(name, 15, PillText, true);
-                var nb = new Rect(p.X - ft.Width / 2 - 5, p.Y - ft.Height / 2 - 1, ft.Width + 10, ft.Height + 2);
-                Scaled(p.X, p.Y, Fs(p.Sc), () => { dc.DrawRoundedRectangle(PillBrush, null, nb, 4, 4); dc.DrawText(ft, new Point(nb.X + 5, nb.Y + 1)); });
+                var ft = Text(name, 30, PillText, true);   // 2x the size of the web and Android ones
+                var nb = new Rect(p.X - ft.Width / 2 - 10, p.Y - ft.Height / 2 - 2, ft.Width + 20, ft.Height + 4);
+                Scaled(p.X, p.Y, Fs(p.Sc), () => { dc.DrawRoundedRectangle(PillBrush, null, nb, 8, 8); dc.DrawText(ft, new Point(nb.X + 10, nb.Y + 2)); });
             }
         }
         if (zoom > 0.3)
         {
-            double r = zoom > 0.8 ? 24 : 18;
+            double r = (zoom > 0.8 ? 24 : 18) * 2.5;   // badges are 2.5x the size of the web and Android ones
             foreach (var poi in m.Pois)
             {
                 if (!ShowPoiTypes.Contains(poi.Type)) continue;
@@ -528,8 +576,7 @@ public sealed class MapControl : FrameworkElement
                 if ((tilted && p.Sc < 0.3) || p.X < -r || p.X > W + r || p.Y < -r || p.Y > H + r) continue;
                 Scaled(p.X, p.Y, Fs(p.Sc), () =>
                 {
-                    dc.DrawEllipse(new SolidColorBrush(PoiColors.GetValueOrDefault(poi.Type, Colors.Gray)), null, new Point(p.X, p.Y), r, r);
-                    Center(dc, PoiLetters.GetValueOrDefault(poi.Type, "?"), p.X, p.Y, r * 1.1, Brushes.White, true);
+                    DrawPoi(dc, poi.Type, p.X, p.Y, r);
                 });
             }
         }

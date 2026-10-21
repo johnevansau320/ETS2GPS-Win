@@ -31,6 +31,10 @@ public sealed class AppSettings
     public string RouteMode { get; set; } = "HEAVY";
     public bool AvoidFerries { get; set; } = false;        // route planning: never use ferries / car trains
     public float DistScale { get; set; } = 19f;
+    /// <summary>true: distances in real metres (map units); false: game (Sim) distances, map metres x DistScale.</summary>
+    public bool RealDistances { get; set; } = false;
+    /// <summary>While cruise control is on, keep it on the current speed limit (taps the game's cruise faster / slower keys).</summary>
+    public bool CruiseAutoLimit { get; set; } = true;
     public bool VoiceOn { get; set; } = true;
     public int VoiceRate { get; set; } = 0;                // -10 .. 10
     public string VoiceName { get; set; } = "";

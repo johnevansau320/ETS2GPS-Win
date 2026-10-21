@@ -21,6 +21,9 @@ public sealed class BuiltInServer : IDisposable
     volatile string lanesJson = "{\"lanes\":null,\"caption\":\"\"}";
     long lanesAt;
     public string? Problem { get; private set; }
+    /// <summary>Set by the app: the cruise-follows-limit state as JSON, and the way to change it (/cruise, used by the tablet and web apps).</summary>
+    public Func<string>? CruiseJson;
+    public Action<bool>? CruiseSet;
     public int Port { get; private set; }
 
     public BuiltInServer(AppSettings cfg, Voice voice) { this.cfg = cfg; this.voice = voice; }
@@ -127,6 +130,13 @@ public sealed class BuiltInServer : IDisposable
                     {
                         if (!File.Exists(MapService.AssetsPath)) { await Reply(s, 404, "text/plain", Encoding.ASCII.GetBytes("no logos / flags yet")); return; }
                         await Reply(s, 200, "application/octet-stream", await File.ReadAllBytesAsync(MapService.AssetsPath));
+                        return;
+                    }
+                case "/cruise":
+                    {
+                        string on = ParseQuery(query, "on");
+                        if (on == "1" || on == "0") CruiseSet?.Invoke(on == "1");
+                        await Reply(s, 200, "application/json", Encoding.UTF8.GetBytes(CruiseJson?.Invoke() ?? "{\"on\":false}"));
                         return;
                     }
                 case "/say":

@@ -1,4 +1,4 @@
-﻿# ETS2 GPS for Windows
+# ETS2 GPS for Windows
 
 The Windows version of [ETS2 GPS](https://github.com/johnevansau320/ETS2GPS) (the Android route-GPS for Euro Truck Simulator 2 with ProMods and other map mods). Licensed under GPL-3.0 (see LICENSE).
 
@@ -48,6 +48,15 @@ Settings (the gear): route type, avoid ferries and car trains, window opacity, v
 and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
+
+## New in 1.4.0
+
+* **Flyovers and bridges**: the map now holds road heights. A road on a flyover, bridge or stacked interchange is drawn on top of the roads it crosses, with a shadow, and is raised in the 3D view while you drive; your route goes visibly over or under a crossing (the part below shows faintly through the deck). The map has to be rebuilt once (the Windows app does it itself when the game and the TruckSim server are running; on Android download the map again).
+* **Pictogram badges**: fuel (lime green), rest areas, service centres, weigh stations, garages, truck dealers, ferries and car trains are drawn as a coloured badge with a picture instead of a letter.
+* **Left menu auto-hides**: after a few seconds without being touched the menu fades away and a thin grip stays on the left edge; touch the grip to bring it back.
+* **Real or Sim distances**: Settings > *Real distances* switches turn distances, lane guidance and trip lengths between the game's scaled (Sim) distances and real metres. The scale itself (default 19) is unchanged.
+* **Cruise control follows the speed limit** (on by default; menu button *Cruise auto / Cruise off*): while cruise control is on, the Windows app taps the game's cruise faster / slower keys (Numpad + and Numpad -, the game's defaults) to keep it on the current speed limit. It only presses keys while Euro Truck Simulator 2 is the window in front. The web and Android buttons switch it on or off on the PC, so they need the Windows app running.
+* **Windows only**: the map opens four zoom steps further in, and the place badges, company logos and company names are drawn larger.
 
 ## Requirements and build
 
