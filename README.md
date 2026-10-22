@@ -49,6 +49,10 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.5.1
+
+* **Border flags in the web version** (iPad / browser) are twice as large too, with the country name under the flag (v1.5.1).
+
 ## New in 1.5.0
 
 * **Border flags** are twice as large and show the name of the country you are entering right under the flag (Windows app only; v1.5.0).
