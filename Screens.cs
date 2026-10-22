@@ -43,7 +43,8 @@ public sealed partial class MainWindow
         }
         var j = s.Job; var dt = s.Detail; var n = nav;
         bool routingNow = n?.Active == true && routeRemainingM >= 0f;
-        float remGameKm = routingNow ? routeRemainingM * distScale / 1000f : dt.NavDistanceKm;
+        // this screen always counts in game kilometres (planned distance, range and consumption come from the game), whatever the Real / Sim distance setting
+        float remGameKm = routingNow ? routeRemainingM * cfg.DistScale / 1000f : dt.NavDistanceKm;
         float realMin = routingNow && routeEtaGameMin >= 0f ? routeEtaGameMin / TimeScale : -1f;
         float simMin = routingNow ? routeEtaGameMin : (s.NavEtaMin >= 0f ? s.NavEtaMin : -1f);
         int planned = j?.PlannedKm ?? 0;
@@ -91,7 +92,7 @@ public sealed partial class MainWindow
         var rr = new List<(string, string, Brush?)> { ("Destination", hasDest ? destName : "none", null) };
         if (routingNow && n != null)
         {
-            rr.Add(("Remaining", n.ShortDistance(routeRemainingM), null)); rr.Add(("Real time left", FormatDuration(realMin), null));
+            rr.Add(("Remaining", Fmt(remGameKm) + " km", null)); rr.Add(("Real time left", FormatDuration(realMin), null));
             rr.Add(("Sim time left", FormatDuration(simMin), null)); rr.Add(("Arrive (sim clock)", ClockText(s.GameTimeMin + simMin), null));
             if (lastNextText.Length > 0) rr.Add(("Next", char.ToUpperInvariant(lastNextText[0]) + lastNextText[1..], null));
         }
@@ -113,7 +114,7 @@ public sealed partial class MainWindow
                 ("Body damage", $"{dt.TrailerBody:0}%", DamageBrush(dt.TrailerBody)), ("Cargo damage", $"{dt.CargoDamage:0}%", DamageBrush(dt.CargoDamage))));
         else Add(Card("TRAILER & CARGO", ("Trailer", "none attached", null)));
 
-        float drivenM = MathF.Max(0f, motion.Travelled - tripBase), driven = drivenM * distScale / 1000f;
+        float drivenM = MathF.Max(0f, motion.Travelled - tripBase), driven = drivenM * cfg.DistScale / 1000f;
         float avg = tripDriveMs > 1000 ? drivenM / (tripDriveMs / 1000f) * 3.6f : 0f;
         var tc = new List<(string, string, Brush?)>
         {
