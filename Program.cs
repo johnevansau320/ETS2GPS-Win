@@ -20,7 +20,7 @@ public static class Program
                 {
                     var mm = MapData.Load(args[i + 1]);
                     int lifted = 0; foreach (var b in mm.PtLift) if (b > 0) lifted++;
-                    res = $"v{mm.Version} edges {mm.EdgeCount} lifted points {lifted} of {mm.PtX.Length} liftedEdges {mm.EHasLift.Count(x => x)} in {sw.ElapsedMilliseconds} ms";
+                    res = $"v{mm.Version} edges {mm.EdgeCount} lifted points {lifted} of {mm.PtX.Length} liftedEdges {mm.EHasLift.Count(x => x)} in {sw.ElapsedMilliseconds} ms; borders " + string.Join(" ", mm.Borders.Where(x => x.Kind == 1 && (x.Cc == "de" || x.Cc == "nl")).Take(8).Select(x => $"{x.Cc}@{x.X:0},{x.Z:0}"));
                 }
                 catch (Exception e) { res = "FAILED " + e; }
                 File.WriteAllText(args[i + 1] + ".check.txt", res);

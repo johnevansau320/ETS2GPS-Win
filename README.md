@@ -49,6 +49,10 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.5.0
+
+* **Border flags** are twice as large and show the name of the country you are entering right under the flag (Windows app only; v1.5.0).
+
 ## New in 1.4.0
 
 * **Flyovers and bridges**: the map now holds road heights. A road on a flyover, bridge or stacked interchange is drawn on top of the roads it crosses, with a shadow, and is raised in the 3D view while you drive; your route goes visibly over or under a crossing (the part below shows faintly through the deck). The map has to be rebuilt once (the Windows app does it itself when the game and the TruckSim server are running; on Android download the map again).

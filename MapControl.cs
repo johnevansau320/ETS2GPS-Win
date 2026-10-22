@@ -494,7 +494,7 @@ public sealed class MapControl : FrameworkElement
                 float dx = bd.X - cx, dz = bd.Z - cz;
                 if (dx > radius || dx < -radius || dz > radius || dz < -radius) continue;
                 var q = P(bd.X, bd.Z);
-                if ((tilted && q.Sc < 0.3) || q.X < -40 || q.X > W + 40 || q.Y < -40 || q.Y > H + 40) continue;
+                if ((tilted && q.Sc < 0.3) || q.X < -140 || q.X > W + 140 || q.Y < -60 || q.Y > H + 90) continue;
                 double f = Fs(q.Sc);
                 if (bd.Kind == 0)
                 {
@@ -510,11 +510,17 @@ public sealed class MapControl : FrameworkElement
                 {
                     var flag = Assets?.Flag(bd.Cc);
                     if (flag == null) continue;
+                    string country = CountryNames.Of(bd.Cc);
                     Scaled(q.X, q.Y, f, () =>
                     {
-                        var r = new Rect(q.X - 19, q.Y - 19, 38, 38);
-                        dc.DrawEllipse(Brushes.White, null, new Point(q.X, q.Y), 21, 21);
+                        // the flag (2x) with the name of the country being entered right under it
+                        var r = new Rect(q.X - 38, q.Y - 38, 76, 76);
+                        dc.DrawEllipse(Brushes.White, null, new Point(q.X, q.Y), 42, 42);
                         dc.DrawImage(flag, r);
+                        var ft = Text(country, 22, PillText, true);
+                        var nb = new Rect(q.X - ft.Width / 2 - 8, q.Y + 36, ft.Width + 16, ft.Height + 2);
+                        dc.DrawRoundedRectangle(PillBrush, new Pen(Brushes.White, 1.5), nb, 6, 6);
+                        dc.DrawText(ft, new Point(nb.X + 8, nb.Y + 1));
                     });
                 }
             }

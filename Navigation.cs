@@ -42,7 +42,7 @@ public sealed partial class MainWindow
             mapView.Map = m;
             mapView.Assets = await Task.Run(() => MapAssets.Load(MapService.AssetsPath));
             SetBannerMessage(null); ClearManeuver();
-            if (autoGoto != null || autoTrip || autoPlan != null || autoTripsExport != null || autoTripsImport != null) _ = AutoStartAsync();
+            if (autoGoto != null || autoTrip || autoPlan != null || ArgAfter("--open") != null || autoTripsExport != null || autoTripsImport != null) _ = AutoStartAsync();
             Toast($"Map loaded: {m.Cities.Count} cities, {m.EdgeCount:N0} road segments" + (m.LaneN.Length > 0 ? ", with lane data" : " - no lane data: rebuild the map with the updated companion"));
         }
         catch (Exception e)
@@ -62,6 +62,16 @@ public sealed partial class MainWindow
             if (c != null) ComputeRoute(c.X, c.Z, c.Name, announce: true);
         }
         if (autoTrip) { await Task.Delay(1500); if (!tripOpen) ToggleTrip(); }
+        // test hook: --open search | stops | trips | plan | poi | settings opens that screen (used to take pictures for the manual)
+        switch (ArgAfter("--open"))
+        {
+            case "search": await Task.Delay(2500); ShowSearch(false); break;
+            case "stops": await Task.Delay(2500); ShowStops(); break;
+            case "trips": await Task.Delay(2500); ShowTrips(); break;
+            case "plan": await Task.Delay(2500); ShowPlanner(); break;
+            case "poi": await Task.Delay(2500); ShowPoiPicker(); break;
+            case "settings": await Task.Delay(2500); ShowSettings(); break;
+        }
     }
 
     // ------------------------------------------------------------------------- telemetry --

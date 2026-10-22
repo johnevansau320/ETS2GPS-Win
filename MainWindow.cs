@@ -121,6 +121,16 @@ public sealed partial class MainWindow : Window
                     rtb.Render(el);
                     var enc = new System.Windows.Media.Imaging.PngBitmapEncoder(); enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
                     using var fsn = File.Create(snapPath); enc.Save(fsn);
+                    // dialogs are separate windows: draw each one too (name_dialog1.png ...)
+                    int dn = 0;
+                    foreach (Window dw in Application.Current.Windows)
+                    {
+                        if (dw == this || !dw.IsVisible || dw.ActualWidth < 50) continue;
+                        var drt = new System.Windows.Media.Imaging.RenderTargetBitmap((int)dw.ActualWidth, (int)dw.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                        drt.Render(dw);
+                        var denc = new System.Windows.Media.Imaging.PngBitmapEncoder(); denc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(drt));
+                        using var dfs = File.Create(Path.ChangeExtension(snapPath, null) + "_dialog" + (++dn) + ".png"); denc.Save(dfs);
+                    }
                 }
                 catch (Exception e) { File.WriteAllText(snapPath + ".err.txt", e.ToString()); }
                 Close();
@@ -241,7 +251,7 @@ public sealed partial class MainWindow : Window
         {
             long now = Environment.TickCount64;
             if (menuScroll.IsMouseOver || menuScroll.IsKeyboardFocusWithin) menuIdle = now;
-            else if (menuShown && now - menuIdle > 4500) SetMenu(false);
+            else if (menuShown && now - menuIdle > 4500 && Environment.GetEnvironmentVariable("ETS2_SNAP_MENU") == null) SetMenu(false);
         };
         menuTimer.Start();
 
