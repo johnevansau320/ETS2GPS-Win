@@ -174,6 +174,9 @@ public sealed partial class MainWindow
         op.ValueChanged += (_, e) => { opLabel.Text = "Opacity " + (int)e.NewValue + "%"; Opacity = e.NewValue / 100.0; };
         sp.Children.Add(opLabel); sp.Children.Add(op);
 
+        sp.Children.Add(H("Lane guidance"));
+        var showLanes = new CheckBox { Content = new TextBlock { Text = "Show lane guidance (the lane panel on the map and in the lane overlay window)", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.ShowLanes, Foreground = Brushes.White };
+        sp.Children.Add(showLanes);
         sp.Children.Add(H("Lane overlay window"));
         var ovAuto = new CheckBox { Content = new TextBlock { Text = "Start the lane overlay when this app starts (if it is not already running)", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.OverlayAutoStart, Foreground = Brushes.White };
         sp.Children.Add(ovAuto);
@@ -231,6 +234,7 @@ public sealed partial class MainWindow
             if (md != null && md != routeMode) SetRouteMode(md);
             Topmost = pin.IsChecked == true; cfg.Topmost = Topmost; UpdatePinButton();
             cfg.Opacity = Opacity;
+            cfg.ShowLanes = showLanes.IsChecked == true; if (!cfg.ShowLanes) SetLaneUi(null);
             cfg.OverlayAutoStart = ovAuto.IsChecked == true; cfg.OverlayPath = ovPath.Text.Trim();
             voice.Enabled = voiceOn.IsChecked == true; cfg.VoiceOn = voice.Enabled; UpdateVoiceButton();
             cfg.VoiceName = combo.SelectedIndex > 0 ? voices[combo.SelectedIndex - 1] : ""; cfg.VoiceRate = (int)rate.Value;

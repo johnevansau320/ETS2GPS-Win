@@ -571,6 +571,7 @@ public sealed partial class MainWindow : Window
 
     void SetLaneUi(List<Lane>? lanes, string caption = "")
     {
+        if (!cfg.ShowLanes) lanes = null;
         if (tripOpen || lanes == null)
         {
             laneHost.Visibility = Visibility.Collapsed;

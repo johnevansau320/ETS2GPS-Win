@@ -35,6 +35,8 @@ public sealed class AppSettings
     public bool RealDistances { get; set; } = false;
     /// <summary>While cruise control is on, keep it on the current speed limit (taps the game's cruise faster / slower keys).</summary>
     public bool CruiseAutoLimit { get; set; } = true;
+    /// <summary>Show the lane guidance panel on the map (and in the lane overlay window).</summary>
+    public bool ShowLanes { get; set; } = true;
     public bool VoiceOn { get; set; } = true;
     public int VoiceRate { get; set; } = 0;                // -10 .. 10
     public string VoiceName { get; set; } = "";

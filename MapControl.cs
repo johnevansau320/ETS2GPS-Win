@@ -14,6 +14,7 @@ public sealed class MapControl : FrameworkElement
     public MapData? Map;
     public float TruckX, TruckZ, Bearing;       // Bearing: radians, clockwise from north
     public bool HasFix;
+    public bool FlagOn; public float FlagX, FlagZ;   // the finishing flag at the destination
     public float[] RoutePts = Array.Empty<float>();   // x,z pairs
     public int[] RouteEdgePt = Array.Empty<int>();    // pair index where each route edge starts
     public byte[] RouteLift = Array.Empty<byte>();    // per route point: height above the road it crosses (0.5 m units)
@@ -464,6 +465,23 @@ public sealed class MapControl : FrameworkElement
                 DrawRoute(true, false);
                 DrawRoute(false, true);   // the route below shows faintly through the deck above it
             }
+        }
+
+        // finishing flag at the destination (the end of the mapped road can be well short of it)
+        if (FlagOn && !PlanMode)
+        {
+            var q = P(FlagX, FlagZ);
+            if (!(tilted && q.Sc < 0.3) && q.X > -80 && q.X < W + 80 && q.Y > -80 && q.Y < H + 80)
+                Scaled(q.X, q.Y, Fs(q.Sc), () =>
+                {
+                    var pole = new Pen(Brushes.White, 3.4) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+                    dc.DrawEllipse(PoiShadow, null, new Point(q.X, q.Y + 1), 7, 3);
+                    dc.DrawLine(pole, new Point(q.X, q.Y), new Point(q.X, q.Y - 50));
+                    double x0 = q.X + 1.5, y0 = q.Y - 50, cell = 7;
+                    dc.DrawRectangle(Brushes.White, new Pen(Brushes.Black, 1.4), new Rect(x0, y0, cell * 5, cell * 4));
+                    for (int ix = 0; ix < 5; ix++) for (int iy = 0; iy < 4; iy++)
+                        if ((ix + iy) % 2 == 0) dc.DrawRectangle(Brushes.Black, null, new Rect(x0 + ix * cell, y0 + iy * cell, cell, cell));
+                });
         }
 
         // big area (city) names

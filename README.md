@@ -49,6 +49,12 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.6.0
+
+* **Job routes lead you to the gate**: when the mapped route ends short of the company, the app keeps the route, says once to follow the flag to the drop-off point and shows the game's remaining distance, instead of declaring the arrival. A chequered **destination flag** marks the destination.
+* **Recalculating** is spoken once each time you leave the route.
+* **Lane guidance** can be switched off (Settings > Show lane guidance).
+
 ## New in 1.5.2
 
 * **Job Info screen** always counts in game kilometres, which fixes a wrong trip progress (for example 95 %) when Real distances was on (v1.5.2).
