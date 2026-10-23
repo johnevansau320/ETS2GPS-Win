@@ -29,7 +29,23 @@ public sealed class BuiltInServer : IDisposable
     public BuiltInServer(AppSettings cfg, Voice voice) { this.cfg = cfg; this.voice = voice; }
 
     /// <summary>The lane panel the app is showing right now (the lane overlay window reads it from /lanes).</summary>
-    public void SetLanes(string json) { lanesJson = json; Interlocked.Exchange(ref lanesAt, Environment.TickCount64); }
+    long localLanesAt;
+    public void SetLanes(string json)
+    {
+        lanesJson = json; Interlocked.Exchange(ref lanesAt, Environment.TickCount64);
+        bool has = !json.StartsWith("{\"lanes\":null", StringComparison.Ordinal);
+        Interlocked.Exchange(ref localLanesAt, has ? Environment.TickCount64 : 0);
+    }
+
+    /// <summary>A panel pushed by another client (tablet, browser). Its "no lanes" never blanks lanes this app is showing right now.</summary>
+    void SetLanesFromClient(string json)
+    {
+        using var d = JsonDocument.Parse(json);
+        bool none = !d.RootElement.TryGetProperty("lanes", out var l) || l.ValueKind != JsonValueKind.Array;
+        long mine = Interlocked.Read(ref localLanesAt);
+        if (none && mine != 0 && Environment.TickCount64 - mine < 3000) return;
+        lanesJson = json; Interlocked.Exchange(ref lanesAt, Environment.TickCount64); Interlocked.Exchange(ref localLanesAt, 0);
+    }
 
     public bool Start()
     {
@@ -150,7 +166,7 @@ public sealed class BuiltInServer : IDisposable
                     {
                         if (method == "POST")
                         {
-                            try { JsonDocument.Parse(body).Dispose(); SetLanes(Encoding.UTF8.GetString(body)); await Reply(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok")); }
+                            try { JsonDocument.Parse(body).Dispose(); SetLanesFromClient(Encoding.UTF8.GetString(body)); await Reply(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok")); }
                             catch (JsonException) { await Reply(s, 400, "text/plain", Encoding.ASCII.GetBytes("bad json")); }
                             return;
                         }
