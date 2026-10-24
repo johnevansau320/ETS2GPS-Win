@@ -82,7 +82,7 @@ public sealed class BuiltInServer : IDisposable
     static string Mime(string name) => Path.GetExtension(name).ToLowerInvariant() switch
     {
         ".html" => "text/html; charset=utf-8", ".js" => "application/javascript; charset=utf-8", ".css" => "text/css",
-        ".json" => "application/json", ".png" => "image/png", ".ico" => "image/x-icon", _ => "application/octet-stream",
+        ".json" => "application/json", ".webmanifest" => "application/manifest+json", ".png" => "image/png", ".ico" => "image/x-icon", _ => "application/octet-stream",
     };
 
     static async Task Reply(Stream s, int code, string ctype, byte[] body, bool noStore = true)

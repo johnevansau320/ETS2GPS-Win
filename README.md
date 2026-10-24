@@ -49,6 +49,10 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.7.2
+
+* **New app icon**: the Windows app (window, taskbar, Start Menu, installer) and the web version (browser tab, and the home-screen icon when you add it on an iPad / iPhone / Android) use the ETS2 GPS truck and pin artwork.
+
 ## New in 1.7.1
 
 * **Update check**: the app looks for a newer release on GitHub about once a day and tells you (Settings > Updates); nothing is downloaded or installed. See *Updates* below.

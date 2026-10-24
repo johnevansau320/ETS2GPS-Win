@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Ets2Gps</AssemblyName>
     <RootNamespace>Ets2Gps</RootNamespace>
-    <Version>1.7.1</Version>
+    <Version>1.7.2</Version>
     <Product>ETS2 GPS</Product>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -19,7 +19,7 @@
 
   <ItemGroup>
     <!-- the web app (for browsers / tablets) travels inside the exe and is served by the built-in server -->
-    <EmbeddedResource Include="$(WebDir)\*.js;$(WebDir)\*.html" LogicalName="web/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(WebDir)\*.js;$(WebDir)\*.html;$(WebDir)\*.png;$(WebDir)\*.webmanifest" LogicalName="web/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
