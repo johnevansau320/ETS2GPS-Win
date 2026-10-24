@@ -213,6 +213,35 @@ public sealed partial class MainWindow
         };
         sp.Children.Add(test);
 
+        sp.Children.Add(H("Updates"));
+        var updAuto = new CheckBox { Content = new TextBlock { Text = "Look for new versions automatically (about once a day; nothing is downloaded or installed)", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.CheckUpdates, Foreground = Brushes.White };
+        sp.Children.Add(updAuto);
+        var updText = new TextBlock { Text = UpdateStatusText(), Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
+        sp.Children.Add(updText);
+        var updRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        var updNow = Ui.Button("Check for updates now", double.NaN, 32); updNow.Padding = new Thickness(12, 0, 12, 0);
+        var updOpen = Ui.Button("Open the download page", double.NaN, 32); updOpen.Padding = new Thickness(12, 0, 12, 0); updOpen.Margin = new Thickness(8, 0, 0, 0);
+        var updSkip = Ui.Button("Skip this version", double.NaN, 32); updSkip.Padding = new Thickness(12, 0, 12, 0); updSkip.Margin = new Thickness(8, 0, 0, 0);
+        updRow.Children.Add(updNow); updRow.Children.Add(updOpen); updRow.Children.Add(updSkip);
+        sp.Children.Add(updRow);
+        void ShowUpdate() { updText.Text = UpdateStatusText(); var vis = update != null ? Visibility.Visible : Visibility.Collapsed; updOpen.Visibility = vis; updSkip.Visibility = vis; }
+        ShowUpdate();
+        updNow.Click += async (_, _) =>
+        {
+            updNow.IsEnabled = false; updText.Text = "Checking...";
+            try
+            {
+                var u = await UpdateCheck.CheckAsync();
+                cfg.LastUpdateCheckUtc = DateTime.UtcNow.Ticks; cfg.SkippedVersion = ""; cfg.Save();
+                SetUpdate(u, announce: false);
+                ShowUpdate();
+            }
+            catch (Exception e) { updText.Text = "Could not reach GitHub: " + e.Message; }
+            updNow.IsEnabled = true;
+        };
+        updOpen.Click += (_, _) => { if (update != null) UpdateCheck.OpenPage(update.PageUrl); };
+        updSkip.Click += (_, _) => { if (update != null) { cfg.SkippedVersion = update.Latest.ToString(3); cfg.Save(); SetUpdate(update, announce: false); ShowUpdate(); } };
+
         sp.Children.Add(H("Connections"));
         sp.Children.Add(new TextBlock { Text = "Telemetry server (TruckSim GPS) address", Foreground = Ui.Dim });
         var tele = Box(cfg.TelemetryHost); sp.Children.Add(tele);
@@ -234,6 +263,7 @@ public sealed partial class MainWindow
             if (md != null && md != routeMode) SetRouteMode(md);
             Topmost = pin.IsChecked == true; cfg.Topmost = Topmost; UpdatePinButton();
             cfg.Opacity = Opacity;
+            cfg.CheckUpdates = updAuto.IsChecked == true;
             cfg.ShowLanes = showLanes.IsChecked == true; if (!cfg.ShowLanes) SetLaneUi(null);
             cfg.OverlayAutoStart = ovAuto.IsChecked == true; cfg.OverlayPath = ovPath.Text.Trim();
             voice.Enabled = voiceOn.IsChecked == true; cfg.VoiceOn = voice.Enabled; UpdateVoiceButton();

@@ -49,6 +49,14 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.7.1
+
+* **Update check**: the app looks for a newer release on GitHub about once a day and tells you (Settings > Updates); nothing is downloaded or installed. See *Updates* below.
+
+## Updates
+
+The app looks for a newer release on GitHub about 20 seconds after it starts and then about once a day (one small request to the public GitHub API; nothing about you or your PC is sent beyond a normal web request). If there is one, a notice appears and **Settings > Updates** shows the version with **Open the download page** and **Skip this version**; **Check for updates now** looks immediately and **Look for new versions automatically** (on by default) switches the checks off. Nothing is downloaded or installed for you, and the app only ever opens a page on github.com. The tablet / browser version shows the same notice for the Windows app.
+
 ## New in 1.7.0
 
 * **Roundabouts are recognised much better**: ones built from several road pieces, and ones the map builder had not flagged, now give a single "At the roundabout, take the Nth exit" at the entry instead of a "bear left / right" at the exit.

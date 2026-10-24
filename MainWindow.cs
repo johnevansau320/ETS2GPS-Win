@@ -431,11 +431,13 @@ public sealed partial class MainWindow : Window
             server = new BuiltInServer(cfg, voice);
             if (!server.Start()) { Toast(server.Problem ?? "The built-in server could not start"); server = new BuiltInServer(cfg, voice); }
             server.CruiseJson = CruiseJson;
+            server.UpdateJson = UpdateJson;
             server.CruiseSet = on => Dispatcher.BeginInvoke(new Action(() => SetCruiseFollows(on, true)));
         }
         CompositionTarget.Rendering += OnFrame;
         tripTimer.Start();
         _ = LoadMapAsync();
+        StartUpdateChecks();
         if (cfg.OverlayAutoStart) { var om = OverlayLauncher.EnsureRunning(cfg); if (om != null) Toast(om); }
     }
 

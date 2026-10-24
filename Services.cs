@@ -38,6 +38,10 @@ public sealed class AppSettings
     /// <summary>Show the lane guidance panel on the map (and in the lane overlay window).</summary>
     public bool ShowLanes { get; set; } = true;
     public bool VoiceOn { get; set; } = true;
+    /// <summary>Look for a newer release on GitHub about once a day (nothing is downloaded; the notice opens the release page).</summary>
+    public bool CheckUpdates { get; set; } = true;
+    public long LastUpdateCheckUtc { get; set; }
+    public string SkippedVersion { get; set; } = "";
     public int VoiceRate { get; set; } = 0;                // -10 .. 10
     public string VoiceName { get; set; } = "";
     public bool Topmost { get; set; } = false;             // keep the window above other apps

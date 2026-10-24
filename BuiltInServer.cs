@@ -23,6 +23,7 @@ public sealed class BuiltInServer : IDisposable
     public string? Problem { get; private set; }
     /// <summary>Set by the app: the cruise-follows-limit state as JSON, and the way to change it (/cruise, used by the tablet and web apps).</summary>
     public Func<string>? CruiseJson;
+    public Func<string>? UpdateJson;   // is a newer Windows app available (for the tablet / browser version)
     public Action<bool>? CruiseSet;
     public int Port { get; private set; }
 
@@ -148,6 +149,9 @@ public sealed class BuiltInServer : IDisposable
                         await Reply(s, 200, "application/octet-stream", await File.ReadAllBytesAsync(MapService.AssetsPath));
                         return;
                     }
+                case "/update":
+                    await Reply(s, 200, "application/json", Encoding.UTF8.GetBytes(UpdateJson?.Invoke() ?? "{\"available\":false}"));
+                    return;
                 case "/cruise":
                     {
                         string on = ParseQuery(query, "on");
