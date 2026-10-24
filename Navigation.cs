@@ -21,6 +21,7 @@ public sealed partial class MainWindow
     string startLabel = "Start";
     float routeRemainingM = -1f, routeEtaGameMin = -1f, paceRatio = 1f;
     long lastPaceMs, lastReroute;
+    const float NearDestM = 120f;   // map metres: this close to the destination the app stops recalculating
     bool offAnnounced, destIsJob, endHinted; long stillSinceMs;
     string lastNextText = "";
     // trip stats and alerts
@@ -90,7 +91,7 @@ public sealed partial class MainWindow
         if (s.SpeedLimitKmh > 0) { limitText.Text = s.SpeedLimitKmh.ToString(CultureInfo.InvariantCulture); limitBox.Visibility = Visibility.Visible; } else limitBox.Visibility = Visibility.Hidden;
         TrackTrip(s, now);
         UpdateBannerJob();
-        if (s.Connected) { UpdateAltitude(s); CheckHill(s, now); CheckNewJob(s); CheckAlerts(s); UpdatePlace(now); NavTick(); }
+        if (s.Connected) { UpdateAltitude(s); CheckHill(s, now); CheckNewJob(s); CheckJobEvents(s); CheckAlerts(s); UpdatePlace(now); NavTick(); }
     }
 
     // ------------------------------------------------------------------------ guidance --
@@ -147,7 +148,7 @@ public sealed partial class MainWindow
         string clockStr = EtaClock(gameMin);
         string label = waypoints.Count > 0 ? $"{destName} (via {waypoints.Count} stop{(waypoints.Count > 1 ? "s" : "")}, next: {waypoints[0].Name})" : destName;
         infoText.Text = label + "\n" + n.ShortDistance(totM) + " · Real " + FormatDuration(realMin) + " · Sim " + FormatDuration(gameMin) + (clockStr.Length > 0 ? " · Arrive " + clockStr : "");
-        if (!st.OffRoute) offAnnounced = false;
+        if (st.OnRoute) offAnnounced = false;   // said again only after the truck has really been back on a route
         if (st.OffRoute) RerouteIfNeeded();
     }
 
@@ -168,7 +169,6 @@ public sealed partial class MainWindow
         SetBannerMessage("Mapped route ends here - follow the flag");
         ClearManeuver(); SetLaneUi(null);
         infoText.Text = destName + "\nTo the destination: about " + n.ShortDistance(gameM / MathF.Max(1f, cfg.DistScale)) + " (the game's route)";
-        offAnnounced = false;
         return true;
     }
 
@@ -189,6 +189,10 @@ public sealed partial class MainWindow
     {
         long now = clock.ElapsedMilliseconds;
         if (!hasDest || routing || now - lastReroute < 4000) return;
+        // inside the destination's yard or compound there are no mapped roads: do not recalculate (or keep saying so) there
+        if (MathF.Sqrt((motion.X - destX) * (motion.X - destX) + (motion.Z - destZ) * (motion.Z - destZ)) < NearDestM) return;
+        // only recalculate once the truck is back on a mapped road (not while manoeuvring in a yard or compound)
+        if (router != null && router.SnapTo(motion.X, motion.Z, motion.Bearing, 35f) == null) return;
         lastReroute = now;
         if (!offAnnounced) { offAnnounced = true; voice.Say("Recalculating"); }   // once per time off the route, not every few seconds
         ComputeRoute(destX, destZ, destName, reroute: true);
@@ -274,7 +278,7 @@ public sealed partial class MainWindow
                 n.ArriveWord = legIsStop ? "your waypoint" : destIsJob ? "the destination area" : "your destination";
                 mapView.FlagOn = true; mapView.FlagX = x; mapView.FlagZ = z;
                 afterM = am; afterS = asec;
-                n.SetRoute(res, remaining);
+                n.SetRoute(res, remaining, reroute);
                 mapView.RoutePts = pts; mapView.RouteLift = lift; mapView.RouteEdgePt = starts; mapView.RouteIdx = 0;
                 SetBannerMessage(null);
                 if (announce)
@@ -305,6 +309,37 @@ public sealed partial class MainWindow
         var c = m.FindCity(t.DestCityId) ?? m.Cities.FirstOrDefault(c => c.Key == City.Normalize(t.DestCity));
         if (c == null) { Toast($"Job destination '{t.DestCity}' is not on the loaded map"); return; }
         ComputeRoute(c.X, c.Z, c.Name, announce: true, isJob: true);
+    }
+
+    // ---- the job ends: delivered (arrived) or cancelled (route no longer wanted)
+    bool evInit, evConn, pDelivered, pCancelled, pFinished, pOnJob;
+
+    void CheckJobEvents(TruckState t)
+    {
+        bool delivered = t.JobDelivered && !pDelivered, cancelled = t.JobCancelled && !pCancelled, finished = t.JobFinished && !pFinished;
+        bool jobEnded = evConn && pOnJob && !t.OnJob;   // the job vanished without an event we saw
+        bool first = !evInit; evInit = true;
+        pDelivered = t.JobDelivered; pCancelled = t.JobCancelled; pFinished = t.JobFinished; pOnJob = t.OnJob; evConn = t.Connected;
+        if (first || !hasDest || !destIsJob) return;
+        if (cancelled)
+        {
+            voice.Say("The job was cancelled. Route cleared.");
+            Toast("Job cancelled - route cleared");
+            CancelRoute();
+        }
+        else if (delivered || finished || jobEnded) FinishRoute("Job complete");
+    }
+
+    /// <summary>The destination is reached (the route is over): same as arriving at the end of the route.</summary>
+    void FinishRoute(string say)
+    {
+        var n = nav; if (n == null) return;
+        if (say.Length > 0) voice.Say(say);
+        mapView.FlagOn = false;
+        infoText.Text = "Arrived at " + destName;
+        SetBannerMessage("You have arrived"); ClearManeuver();
+        n.Clear(); mapView.RoutePts = Array.Empty<float>(); mapView.RouteEdgePt = Array.Empty<int>(); mapView.NextManeuver = null;
+        hasDest = false; destIsJob = false; SetLaneUi(null);
     }
 
     void CheckNewJob(TruckState t)

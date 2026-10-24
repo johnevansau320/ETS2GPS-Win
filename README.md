@@ -49,6 +49,16 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.7.0
+
+* **Roundabouts are recognised much better**: ones built from several road pieces, and ones the map builder had not flagged, now give a single "At the roundabout, take the Nth exit" at the entry instead of a "bear left / right" at the exit.
+* **Exit ramps** that loop round (cloverleaf and similar) are announced by the side they leave on: "take the exit on the right / left".
+* **Job routes lead you to the gate**: when the mapped road ends short of the company the app keeps the route, says once to follow the flag to the drop-off point and shows the game's remaining distance. A chequered **destination flag** marks the destination.
+* **Delivered or cancelled jobs** end the route ("Job complete" / "Job cancelled").
+* **Quieter guidance**: "Recalculating" is spoken once per time off the route; no recalculating inside the destination's or the pickup's yard; a prompt is not read out again after a recalculation.
+* **Cruise control** presses the keys you have set in the game (read from your controls file), not just Numpad + and Numpad -.
+* The lane overlay is started more reliably; the installer checks each file it copies. Works with TruckSim GPS PC Telemetry 2.0.
+
 ## New in 1.6.1
 
 * **Lane overlay window** no longer blinks off and on: idle devices no longer blank the lanes, and the overlay keeps the last panel across a missed update (v1.6.1).

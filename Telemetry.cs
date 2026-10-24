@@ -37,6 +37,7 @@ public sealed class TruckState
     public bool HasTrailer;
     public float FuelFraction = -1f;    // 0..1, -1 unknown
     public bool FuelWarning;
+    public bool OnJob, JobDelivered, JobCancelled, JobFinished;   // the server's gameplay section (events are edge-detected by the app)
     public float NextRestMin = -1f;
     public JobInfo? Job;
     public float NavEtaMin = -1f;       // the game's own ETA in game minutes
@@ -122,6 +123,7 @@ public static class Telemetry
             attached = Bool(tr, "attached");
         }
         double cap = Num(truck, "fuelCapacity");
+        var gp = Obj(root, "gameplay");
         string destId = Str(job, "destinationCityId");
         var s = new TruckState
         {
@@ -136,6 +138,7 @@ public static class Telemetry
             NextRestMin = RestMinutes(Str(game, "nextRestStopTime")),
             NavEtaMin = RestMinutes(Str(nav, "estimatedTime")),
             GameTimeMin = ClockMinutes(Str(game, "time")),
+            OnJob = Bool(gp, "onJob"), JobDelivered = Bool(gp, "jobDelivered"), JobCancelled = Bool(gp, "jobCancelled"), JobFinished = Bool(gp, "jobFinished"),
         };
         if (destId.Length > 0)
             s.Job = new JobInfo

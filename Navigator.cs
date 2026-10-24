@@ -12,6 +12,8 @@ public sealed class Maneuver
     public Turn Turn;
     public float AtM;          // distance along the route
     public int ExitNo;         // roundabout exit number, else 0
+    public uint Jid;           // junction (prefab) the maneuver happens in, 0 for a ring built from roads
+    public bool Exit;          // a ramp / exit road leaving a bigger road (spoken as "take the exit on the right")
     public float AngleDeg;     // signed turn angle, + = right
     public float X, Z;         // position of the junction entry
     public string? Towards;    // next town the route heads for after this maneuver
@@ -26,6 +28,7 @@ public sealed class NavState
     public Maneuver? Next, Following;
     public float RemainingM, RemainingS;
     public bool OffRoute, Arrived;
+    public bool OnRoute;   // the truck is on the route right now (OffRoute only turns true after a few seconds away from it)
     public string? Speech;
     public List<Lane>? Lanes;
     public float LanesDistM;
@@ -73,7 +76,11 @@ public sealed class Navigator
     }
 
     /// <summary>remainingM = how much of the first edge was still ahead when the route was computed.</summary>
-    public void SetRoute(RouteResult res, float remainingM)
+    // Prompts already given are remembered for a short while, so a recalculated route (the truck was off the road for a moment) does not read the same prompt out again.
+    readonly Dictionary<(Turn, int, int), (int Stage, long At)> memo = new();
+    static (Turn, int, int) MemoKey(Maneuver mv) => (mv.Turn, (int)MathF.Round(mv.X / 15f), (int)MathF.Round(mv.Z / 15f));
+
+    public void SetRoute(RouteResult res, float remainingM, bool reroute = false)
     {
         route = res.Edges;
         int n = route.Length;
@@ -88,7 +95,14 @@ public sealed class Navigator
         offCount = 0;
         Maneuvers = BuildManeuvers();
         AssignTowards();
-        stage = Maneuvers.Select(mv => mv.AtM < progress ? 3 : 0).ToArray(); // nothing behind the start gets announced
+        if (!reroute) memo.Clear();
+        long now = Environment.TickCount64;
+        stage = Maneuvers.Select(mv =>
+        {
+            int s = mv.AtM < progress ? 3 : 0;   // nothing behind the start gets announced
+            if (reroute && memo.TryGetValue(MemoKey(mv), out var m) && now - m.At < 90_000) s = Math.Max(s, m.Stage);
+            return s;
+        }).ToArray();
     }
 
     float Tangent(int de, bool atEnd, float win = 6f)
@@ -118,13 +132,168 @@ public sealed class Navigator
 
     static float DegDiff(float a, float b) => Router.AngleDiff(a, b) * 180f / MathF.PI;
 
+    /// <summary>Total turning along a directed edge in degrees, + = right, NOT wrapped to +-180 (a 270 degree loop ramp counts as 270).</summary>
+    float CumTurn(int de, float win = 3f)
+    {
+        int n = map.DeCount(de);
+        if (n < 3) return 0f;
+        float tot = 0f, prev = float.NaN, lx = map.DeX(de, 0), lz = map.DeZ(de, 0);
+        for (int i = 1; i < n; i++)
+        {
+            float x = map.DeX(de, i), z = map.DeZ(de, i);
+            if (M.Hypot(x - lx, z - lz) < win && i != n - 1) continue;
+            float h = Router.BearingOf(x - lx, z - lz);
+            if (!float.IsNaN(prev)) tot += DegDiff(h, prev);
+            prev = h; lx = x; lz = z;
+        }
+        return tot;
+    }
+
+    // ------------------------------------------------------------------------ roundabouts the map builder did not flag --
+    // The builder flags a junction as a roundabout only when enough of its arms are connected to roads. A junction that has the shape of one anyway
+    // (every straight-on path is forced to bend around a central island) is treated as a roundabout here too.
+    readonly Dictionary<uint, bool> geoRb = new();
+
+    bool IsRoundabout(uint jid, int entry, List<(int De, float Angle)> alts)
+    {
+        if (map.Roundabouts.Contains(jid)) return true;
+        if (geoRb.TryGetValue(jid, out var known)) return known;
+        var nodes = new HashSet<int> { entry };
+        foreach (var a in alts) nodes.Add(map.DeTo(a.De));
+        bool seenStraight = false, rb = true;
+        foreach (int node in nodes)
+        {
+            for (int i = 0; i < router.OutCount(node) && rb; i++)
+            {
+                int j = router.OutAt(node, i);
+                if (map.EJid[j >> 1] != jid) continue;
+                int cnt = map.DeCount(j);
+                if (cnt < 3) continue;
+                if (MathF.Abs(DegDiff(Tangent(j, true), Tangent(j, false))) > 25f) continue;   // not carrying straight on
+                float x0 = map.DeX(j, 0), z0 = map.DeZ(j, 0), x1 = map.DeX(j, cnt - 1), z1 = map.DeZ(j, cnt - 1);
+                float chord = M.Hypot(x1 - x0, z1 - z0);
+                if (chord < 12f) continue;
+                float bulge = 0f;
+                for (int q = 0; q < cnt; q++) bulge = MathF.Max(bulge, MathF.Abs((map.DeX(j, q) - x0) * (z1 - z0) - (map.DeZ(j, q) - z0) * (x1 - x0)) / chord);
+                if (bulge < 4f) rb = false;   // one straight path is really straight: an ordinary intersection
+                else seenStraight = true;
+            }
+        }
+        bool result = rb && seenStraight && nodes.Count >= 3;
+        geoRb[jid] = result;
+        return result;
+    }
+
+    // ------------------------------------------------------------------------ roundabouts made of ordinary roads --
+    // Many roundabouts are not one prefab: they are a ring of short curved road pieces (and small junction pieces) that the router
+    // sees as a closed loop of directed edges. A ring is a closed loop of at most 14 edges, 80 to 260 m around, that keeps curving
+    // the same way for about one full turn.
+
+    sealed class Ring { public int[] Edges = Array.Empty<int>(); public HashSet<int> Set = new(); }
+    readonly Dictionary<int, Ring?> ringOf = new();
+
+    Ring? FindRing(int de0)
+    {
+        if (ringOf.TryGetValue(de0, out var cached)) return cached;
+        Ring? found = null;
+        float len0 = map.ELen[de0 >> 1];
+        if (len0 <= 120f && MathF.Abs(CumTurn(de0)) >= 8f)
+        {
+            int start = map.DeFrom(de0);
+            var path = new List<int> { de0 };
+            Dfs(start, de0, path, len0, CumTurn(de0), ref found);
+        }
+        ringOf[de0] = found;
+        return found;
+    }
+
+    /// <summary>The ring's junction points lie roughly on a circle (about 10 to 45 m across): a roundabout, not a block of streets.</summary>
+    bool Circular(List<int> path)
+    {
+        float cx = 0, cz = 0;
+        foreach (int e in path) { int nd = map.DeFrom(e); cx += map.NodeX[nd]; cz += map.NodeZ[nd]; }
+        cx /= path.Count; cz /= path.Count;
+        float mn = float.MaxValue, mx = 0, sum = 0;
+        foreach (int e in path) { int nd = map.DeFrom(e); float r = M.Hypot(map.NodeX[nd] - cx, map.NodeZ[nd] - cz); mn = MathF.Min(mn, r); mx = MathF.Max(mx, r); sum += r; }
+        float mean = sum / path.Count;
+        return mean >= 10f && mean <= 45f && mx <= 1.45f * MathF.Max(mn, 1f);
+    }
+
+    void Dfs(int start, int last, List<int> path, float length, float turn, ref Ring? found)
+    {
+        if (found != null || path.Count > 14) return;
+        int cur = map.DeTo(last);
+        float endH = Tangent(last, true);
+        for (int i = 0; i < router.OutCount(cur) && found == null; i++)
+        {
+            int nx = router.OutAt(cur, i);
+            if (path.Contains(nx)) continue;
+            float len = length + map.ELen[nx >> 1];
+            if (len > 260f) continue;
+            float dh = DegDiff(Tangent(nx, false), endH);
+            if (MathF.Abs(dh) > 75f) continue;
+            float t = turn + dh + CumTurn(nx);
+            path.Add(nx);
+            if (map.DeTo(nx) == start && path.Count >= 3)
+            {
+                float close = DegDiff(Tangent(path[0], false), Tangent(nx, true));
+                float tot = t + close;
+                if (len >= 80f && MathF.Abs(tot) >= 300f && MathF.Abs(tot) <= 470f)
+                {
+                    float sg = tot > 0 ? 1f : -1f; bool ok = true; int curved = 0;
+                    foreach (int e in path) { float c = CumTurn(e) * sg; if (c < -12f) ok = false; if (c > 8f) curved++; }
+                    if (ok && curved >= (path.Count > 8 ? 3 : 2) && Circular(path)) found = new Ring { Edges = path.ToArray(), Set = new HashSet<int>(path) };
+                }
+            }
+            else Dfs(start, nx, path, len, t, ref found);
+            path.RemoveAt(path.Count - 1);
+        }
+    }
+
+    /// <summary>Finds roundabouts on the route: (first route index, last route index, ring, entry node, exit node).</summary>
+    List<(int K0, int K1, Ring Ring)> RingSpans()
+    {
+        var spans = new List<(int, int, Ring)>();
+        int n = route.Length;
+        for (int k = 1; k < n - 1; k++)
+        {
+            var ring = FindRing(route[k]);
+            if (ring == null) continue;
+            int k1 = k;
+            while (k1 + 1 < n - 1 && ring.Set.Contains(route[k1 + 1])) k1++;
+            int k0 = k;
+            while (k0 - 1 >= 1 && ring.Set.Contains(route[k0 - 1])) k0--;
+            spans.Add((k0, k1, ring));
+            k = k1;
+        }
+        return spans;
+    }
+
     List<Maneuver> BuildManeuvers()
     {
         var outList = new List<Maneuver>();
         var hints = new List<LaneHint>();
         int n = route.Length;
+        // roundabouts built from ordinary road pieces: one instruction for the whole ring, nothing for the pieces inside it
+        var inRing = new bool[n];
+        foreach (var (k0, k1, ring) in RingSpans())
+        {
+            int k0e = k0 - 1 >= 1 && map.EJid[route[k0 - 1] >> 1] != 0 && !ring.Set.Contains(route[k0 - 1]) ? k0 - 1 : k0;
+            int k1e = k1 + 1 < n - 1 && map.EJid[route[k1 + 1] >> 1] != 0 && !ring.Set.Contains(route[k1 + 1]) ? k1 + 1 : k1;
+            int idx0 = Array.IndexOf(ring.Edges, route[k0]), count = 0;
+            for (int j = 0; j < ring.Edges.Length; j++)
+            {
+                int re = ring.Edges[(idx0 + j) % ring.Edges.Length];
+                if (router.OutCount(map.DeTo(re)) >= 2) count++;
+                if (re == route[k1]) break;
+            }
+            for (int q = k0e; q <= k1e; q++) inRing[q] = true;
+            float ang = DegDiff(Tangent(route[k1e], true), Tangent(route[k0e - 1], true));
+            outList.Add(new Maneuver { Turn = Turn.Roundabout, Jid = 0, AtM = cum[k0e], ExitNo = Math.Max(1, count), AngleDeg = ang, X = map.DeX(route[k0e], 0), Z = map.DeZ(route[k0e], 0) });
+        }
         for (int k = 1; k < n - 1; k++)
         {
+            if (inRing[k]) continue;
             int de = route[k], e = de >> 1;
             uint jid = map.EJid[e];
             if (jid == 0) continue;
@@ -143,8 +312,8 @@ public sealed class Navigator
             var straightest = alts[0];
             foreach (var a in alts) if (MathF.Abs(a.Angle) < MathF.Abs(straightest.Angle)) straightest = a;
             float x = map.DeX(de, 0), z = map.DeZ(de, 0);
-            Maneuver Mk(Turn t, int exitNo) => new() { Turn = t, AtM = cum[k], ExitNo = exitNo, AngleDeg = angle, X = x, Z = z };
-            if (map.Roundabouts.Contains(jid))
+            Maneuver Mk(Turn t, int exitNo) => new() { Turn = t, AtM = cum[k], ExitNo = exitNo, AngleDeg = angle, X = x, Z = z, Jid = jid };
+            if (IsRoundabout(jid, entry, alts))
             {
                 var sorted = alts.OrderByDescending(a => a.Angle).ToList();
                 int no = sorted.FindIndex(a => a.De == de) + 1;
@@ -154,7 +323,15 @@ public sealed class Navigator
             float ab = MathF.Abs(angle); bool right = angle > 0;
             int before = outList.Count;
             var laneList = LanesFor(alts, de);
-            if (ab < 22f) { if (straightest.De != de) outList.Add(Mk(right ? Turn.KeepRight : Turn.KeepLeft, 0)); }
+            // a ramp that loops more than half a turn (up to 270 degrees) ends up pointing the "other" way once the angle is wrapped to +-180:
+            // judge which way it LEAVES the road instead (compare its start with the straight-on road)
+            if (straightest.De != de && MathF.Abs(CumTurn(de)) > 160f && MathF.Abs(straightest.Angle) < 40f)
+            {
+                bool leavesRight = DegDiff(Tangent(de, false, 15f), Tangent(straightest.De, false, 15f)) > 0;
+                var mv = Mk(leavesRight ? Turn.BearRight : Turn.BearLeft, 0); mv.Exit = true;
+                outList.Add(mv);
+            }
+            else if (ab < 22f) { if (straightest.De != de) outList.Add(Mk(right ? Turn.KeepRight : Turn.KeepLeft, 0)); }
             else if (ab < 55f) outList.Add(Mk(right ? Turn.BearRight : Turn.BearLeft, 0));
             else if (ab < 135f) outList.Add(Mk(right ? Turn.TurnRight : Turn.TurnLeft, 0));
             else outList.Add(Mk(Turn.UTurn, 0));
@@ -163,6 +340,7 @@ public sealed class Navigator
             if (laneList != null && (outList.Count > before || laneList.Any(l => !l.Preferred)))
                 hints.Add(new LaneHint { AtM = cum[k], Lanes = laneList });
         }
+        outList.Sort((a, b) => a.AtM.CompareTo(b.AtM));
         int last = route[n - 1], cnt = map.DeCount(last);
         outList.Add(new Maneuver { Turn = Turn.Arrive, AtM = cum[n], X = map.DeX(last, cnt - 1), Z = map.DeZ(last, cnt - 1) });
         laneHints = hints;
@@ -286,13 +464,13 @@ public sealed class Navigator
             float tau = MathF.Max(speedMps, 4f);
             float d1 = MathF.Max(tau * 26f, 300f), d2 = MathF.Max(tau * 10f, 110f), d3 = MathF.Max(tau * 3.5f, 35f);
             int want = toNext <= d3 ? 3 : toNext <= d2 ? 2 : toNext <= d1 ? 1 : 0;
-            if (want > stage[ni]) { stage[ni] = want; speech = Phrase(next, following, toNext, want); }
+            if (want > stage[ni]) { stage[ni] = want; memo[MemoKey(next)] = (want, Environment.TickCount64); speech = Phrase(next, following, toNext, want); }
         }
         var hint = laneHints.FirstOrDefault(h => h.AtM > progress - 12f);
         return new NavState
         {
             DistToNextM = toNext, Next = next, Following = following, RemainingM = remaining, RemainingS = remS,
-            OffRoute = offRoute, Arrived = arrived, Speech = speech,
+            OffRoute = offRoute, OnRoute = rawDist <= OffRouteM, Arrived = arrived, Speech = speech,
             Lanes = hint?.Lanes, LanesDistM = hint != null ? MathF.Max(0f, hint.AtM - progress) : 0f,
         };
     }
@@ -311,8 +489,8 @@ public sealed class Navigator
     {
         Turn.KeepLeft => "keep left",
         Turn.KeepRight => "keep right",
-        Turn.BearLeft => "bear left",
-        Turn.BearRight => "bear right",
+        Turn.BearLeft => mv.Exit ? "take the exit on the left" : "bear left",
+        Turn.BearRight => mv.Exit ? "take the exit on the right" : "bear right",
         Turn.TurnLeft => "turn left",
         Turn.TurnRight => "turn right",
         Turn.UTurn => "make a U-turn",

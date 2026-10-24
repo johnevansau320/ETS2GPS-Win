@@ -67,6 +67,7 @@ public sealed partial class MainWindow : Window
         routeMode = RouteMode.ByKey(cfg.RouteMode);
         distScale = cfg.RealDistances ? 1f : cfg.DistScale;
         cruise = new CruiseAssist(() => cfg.CruiseAutoLimit);
+        cruise.Notice += msg => Dispatcher.BeginInvoke(new Action(() => Toast(msg)));   // a toast, not a dialog: nothing may take the focus away from the game
         Title = "ETS2 GPS";
         transparentWindow = cfg.Opacity < 0.999;
         if (transparentWindow) AllowsTransparency = true;
@@ -488,7 +489,7 @@ public sealed partial class MainWindow : Window
         if (say) Toast(on ? "Cruise control will follow the speed limit while the game is in front" : "Cruise control stays where you set it");
     }
 
-    string CruiseJson() => System.Text.Json.JsonSerializer.Serialize(new { on = cfg.CruiseAutoLimit, engaged = truck?.CruiseOn ?? false, limit = truck?.SpeedLimitKmh ?? 0, setting = Math.Round(truck?.CruiseKmh ?? 0) });
+    string CruiseJson() => System.Text.Json.JsonSerializer.Serialize(new { on = cfg.CruiseAutoLimit, engaged = truck?.CruiseOn ?? false, limit = truck?.SpeedLimitKmh ?? 0, setting = Math.Round(truck?.CruiseKmh ?? 0), keys = cruise.KeysText, problem = cruise.Problem });
 
     void UpdateVoiceButton() => voiceBtn.Content = voice.Enabled ? "Voice on" : "Voice off";
     void UpdatePinButton() { pinBtn.Content = Topmost ? "On top ✓" : "Pin on top"; pinBtn.Background = Topmost ? Ui.Accent : Ui.Btn; }
