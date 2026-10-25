@@ -38,6 +38,9 @@ public sealed class AppSettings
     /// <summary>Show the lane guidance panel on the map (and in the lane overlay window).</summary>
     public bool ShowLanes { get; set; } = true;
     public bool VoiceOn { get; set; } = true;
+    /// <summary>Listen on the microphone for spoken commands ("GPS, nearest fuel station"). Off by default; recognised on this PC, nothing is recorded or sent.</summary>
+    public bool VoiceControl { get; set; } = false;
+    public string VoiceWake { get; set; } = "GPS";
     /// <summary>Look for a newer release on GitHub about once a day (nothing is downloaded; the notice opens the release page).</summary>
     public bool CheckUpdates { get; set; } = true;
     public long LastUpdateCheckUtc { get; set; }
@@ -84,6 +87,10 @@ public sealed class Voice : IDisposable
     public bool Enabled { get; set; } = true;
     public string? Problem { get; private set; }
 
+    int pending; long endedAt;
+    /// <summary>True while a prompt is being spoken (and for a moment after): voice control must not listen to the app's own voice.</summary>
+    public bool Busy => Volatile.Read(ref pending) > 0 || Environment.TickCount64 - Interlocked.Read(ref endedAt) < 700;
+
     public IEnumerable<string> Voices()
     {
         try { using var s = new SpeechSynthesizer(); return s.GetInstalledVoices().Where(v => v.Enabled).Select(v => v.VoiceInfo.Name).ToList(); }
@@ -94,7 +101,11 @@ public sealed class Voice : IDisposable
     {
         try
         {
-            tts ??= new SpeechSynthesizer();
+            if (tts == null)
+            {
+                tts = new SpeechSynthesizer();
+                tts.SpeakCompleted += (_, _) => { if (Interlocked.Decrement(ref pending) < 0) Interlocked.Exchange(ref pending, 0); Interlocked.Exchange(ref endedAt, Environment.TickCount64); };
+            }
             tts.SetOutputToDefaultAudioDevice();
             tts.Rate = Math.Clamp(rate, -10, 10);
             if (!string.IsNullOrEmpty(voiceName)) { try { tts.SelectVoice(voiceName); } catch { /* voice not installed */ } }
@@ -121,6 +132,7 @@ public sealed class Voice : IDisposable
             if (tts == null) Configure(0, "");
             if (tts == null) return;
             tts.SpeakAsyncCancelAll();
+            Interlocked.Increment(ref pending);
             tts.SpeakAsync(text);
         }
         catch (Exception e) { Problem = "Speech failed: " + e.Message; }

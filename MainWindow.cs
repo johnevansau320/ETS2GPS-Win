@@ -104,7 +104,7 @@ public sealed partial class MainWindow : Window
         ContentRendered += (_, _) => ApplyAlpha();   // WPF resets the layered style while the window is being shown
         Activated += (_, _) => ApplyAlpha();
         StateChanged += (_, _) => ApplyAlpha();
-        Closed += (_, _) => { PersistWindow(); telemetry.Dispose(); server?.Dispose(); voice.Dispose(); };
+        Closed += (_, _) => { PersistWindow(); telemetry.Dispose(); server?.Dispose(); vctl?.Dispose(); voice.Dispose(); };
         // test hook: --snapshot file.png draws the window to a picture once the map and the truck are known, then quits
         var snapPath = ArgAfter("--snapshot");
         if (snapPath != null)
@@ -392,6 +392,7 @@ public sealed partial class MainWindow : Window
         if (Math.Abs(s - scaleTransform.ScaleX) < 0.001) return;
         scaleTransform.ScaleX = s; scaleTransform.ScaleY = s;
         Ui.Scale = s;
+        if (tripOpen) UpdateTrip();
         PlaceCompass();
     }
 
@@ -438,6 +439,7 @@ public sealed partial class MainWindow : Window
         tripTimer.Start();
         _ = LoadMapAsync();
         StartUpdateChecks();
+        ApplyVoiceControl(announce: true);
         if (cfg.OverlayAutoStart) { var om = OverlayLauncher.EnsureRunning(cfg); if (om != null) Toast(om); }
     }
 

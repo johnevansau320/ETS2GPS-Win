@@ -49,6 +49,26 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.8.0
+
+* **Voice control**: drive the app by voice while the game has the focus. Say the wake word ("GPS") and a command, for example "GPS, nearest fuel station". Switch it on in Settings > Voice control. See *Voice control* below.
+* **Job Info dashboard**: on a wide window the Job Info screen is the same dashboard as on the tablet (header strip, five headline cards for cargo, arrival, deadline, fuel for the trip and income, then five detail cards). It always fills the window without scrolling; a tall or narrow window shows the cards as a grid, also fitted to the window.
+* The real time and distance under the route name are shown in yellow.
+
+## Voice control
+
+Settings > **Voice control (microphone)** switches it on and sets the wake word (default `GPS`). Every command starts with the wake word, so ordinary speech and the game's sound do nothing, and the app does not listen while it is speaking itself. Recognition uses the speech recognizer built into Windows (English) on your PC: no audio is recorded, stored or sent anywhere.
+
+| Say "GPS, ..." | Does |
+|---|---|
+| nearest fuel station / rest area / service centre / weigh station / garage / truck dealer / ferry | Says how far and which way, and navigates there |
+| take the job | Navigates to the job's delivery point |
+| show job info / show the map (or back to navigation) | Opens or closes the Job Info screen |
+| cancel the route / back to my route | Cancels, or returns to the route you had before a detour |
+| how far is it / when do I arrive / what is next / speed limit / fuel level | Spoken answers |
+| lane guidance, cruise assist, voice guidance on / off | Switches them |
+| help | Lists the commands |
+
 ## New in 1.7.2
 
 * **New app icon**: the Windows app (window, taskbar, Start Menu, installer) and the web version (browser tab, and the home-screen icon when you add it on an iPad / iPhone / Android) use the ETS2 GPS truck and pin artwork.

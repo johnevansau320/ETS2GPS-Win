@@ -147,7 +147,7 @@ public sealed partial class MainWindow
         routeEtaGameMin = gameMin;
         string clockStr = EtaClock(gameMin);
         string label = waypoints.Count > 0 ? $"{destName} (via {waypoints.Count} stop{(waypoints.Count > 1 ? "s" : "")}, next: {waypoints[0].Name})" : destName;
-        infoText.Text = label + "\n" + n.ShortDistance(totM) + " · Real " + FormatDuration(realMin) + " · Sim " + FormatDuration(gameMin) + (clockStr.Length > 0 ? " · Arrive " + clockStr : "");
+        SetInfo(label, n.ShortDistance(totM) + " · Real " + FormatDuration(realMin) + " · Sim " + FormatDuration(gameMin) + (clockStr.Length > 0 ? " · Arrive " + clockStr : ""));
         if (st.OnRoute) offAnnounced = false;   // said again only after the truck has really been back on a route
         if (st.OffRoute) RerouteIfNeeded();
     }
@@ -168,7 +168,7 @@ public sealed partial class MainWindow
         if (!endHinted) { endHinted = true; voice.Say("The mapped route ends here. Follow the flag to the drop off point."); }
         SetBannerMessage("Mapped route ends here - follow the flag");
         ClearManeuver(); SetLaneUi(null);
-        infoText.Text = destName + "\nTo the destination: about " + n.ShortDistance(gameM / MathF.Max(1f, cfg.DistScale)) + " (the game's route)";
+        SetInfo(destName, "To the destination: about " + n.ShortDistance(gameM / MathF.Max(1f, cfg.DistScale)) + " (the game's route)");
         return true;
     }
 
@@ -183,6 +183,17 @@ public sealed partial class MainWindow
         float ratio = Math.Clamp(actual / model, 0.35f, 1.3f);
         float a = 1f - MathF.Exp(-dt / 90f);
         paceRatio = Math.Clamp(paceRatio + (ratio - paceRatio) * a, 0.4f, 1.2f);
+    }
+
+    static readonly Brush InfoYellow = Ui.Frozen(Color.FromRgb(255, 214, 51));
+
+    /// <summary>The route line at the bottom: the destination in white, the distance and times under it in yellow.</summary>
+    void SetInfo(string name, string detail)
+    {
+        infoText.Inlines.Clear();
+        infoText.Inlines.Add(new System.Windows.Documents.Run(name));
+        infoText.Inlines.Add(new System.Windows.Documents.LineBreak());
+        infoText.Inlines.Add(new System.Windows.Documents.Run(detail) { Foreground = InfoYellow });
     }
 
     void RerouteIfNeeded()

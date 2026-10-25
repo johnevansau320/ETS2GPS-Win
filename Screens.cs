@@ -27,18 +27,19 @@ public sealed partial class MainWindow
             Grid.SetColumn(val, 1); g.Children.Add(val);
             sp.Children.Add(g);
         }
-        return new Border { Child = sp, Background = Ui.Frozen(Color.FromRgb(24, 33, 45)), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 12), Margin = new Thickness(5) };
+        // the rows are kept on the card so the dashboard layout can draw the same card its own way
+        return new Border { Child = sp, Tag = (title, rows), Background = Ui.Frozen(Color.FromRgb(24, 33, 45)), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 12), Margin = new Thickness(5) };
     }
 
     void UpdateTrip()
     {
         var s = truck;
-        var page = new StackPanel { Margin = new Thickness(204, 12, 18, 12) };
+        var page = new StackPanel { Margin = new Thickness(6) };
         page.Children.Add(new TextBlock { Text = "TRIP DETAILS", FontSize = 22, FontWeight = FontWeights.Bold, Foreground = Brushes.White });
         if (s == null || !s.Connected)
         {
             page.Children.Add(Card("WAITING", ("Game", "not connected", null)));
-            tripPage.Child = new ScrollViewer { Content = page };
+            ShowTripPage(page, null);
             return;
         }
         var j = s.Job; var dt = s.Detail; var n = nav;
@@ -69,7 +70,8 @@ public sealed partial class MainWindow
         page.Children.Add(new Border { Child = head, Background = Ui.Frozen(Color.FromRgb(24, 33, 45)), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(5, 8, 5, 5) });
 
         var wrap = new WrapPanel { Orientation = Orientation.Horizontal };
-        void Add(Border c) { c.Width = 380; wrap.Children.Add(c); }
+        const double cardW = 380;
+        void Add(Border c) { c.Width = cardW; wrap.Children.Add(c); }
 
         if (j != null)
         {
@@ -130,11 +132,226 @@ public sealed partial class MainWindow
         if (place.Length > 0) tr.Add(("Location", place.Replace("Near ", ""), null));
         Add(Card("TIME & REST", tr.ToArray()));
 
+        // a wide window gets the dashboard (the same design as the tablet version); a tall, narrow one keeps the card grid
+        double pw = (tripPage.ActualWidth > 0 ? tripPage.ActualWidth : DesignW) - TripMenuW, ph = tripPage.ActualHeight > 0 ? tripPage.ActualHeight : DesignH;
+        if (pw / ph >= 1.45)
+        {
+            var row2 = new[] { "THIS TRIP", "TRAILER & CARGO", "TRUCK", "ROUTE", "TIME & REST" }
+                .Select(t => wrap.Children.OfType<Border>().Select(b => b.Tag).OfType<(string Title, (string K, string V, Brush? C)[] Rows)>().FirstOrDefault(c => c.Title == t))
+                .Where(c => c.Title != null).ToList();
+            ShowDashboard(s, remGameKm, realMin, simMin, row2);
+            return;
+        }
         page.Children.Add(wrap);
-        var sv = tripPage.Child as ScrollViewer;
-        double off = sv?.VerticalOffset ?? 0;
-        tripPage.Child = new ScrollViewer { Content = page, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        ((ScrollViewer)tripPage.Child).ScrollToVerticalOffset(off);
+        ShowTripPage(page, wrap);
+    }
+
+    const double TripMenuW = 204;   // the left menu stays visible beside the job info page
+
+    /// <summary>
+    /// The job info dashboard for wide windows, a port of the tablet's: header strip, five headline cards, five detail cards,
+    /// drawn on a fixed 1000 x 562 (16:9) design canvas that is scaled to fill the window, so it never needs scrolling.
+    /// </summary>
+    void ShowDashboard(TruckState s, float remGameKm, float realMin, float simMin, List<(string Title, (string K, string V, Brush? C)[] Rows)> row2)
+    {
+        const double W0 = 1000, H0 = 562;
+        var j = s.Job; var dt = s.Detail;
+        var inv = CultureInfo.InvariantCulture;
+        Brush white = Brushes.White, green = GreenText;
+        Brush cardBg = Ui.Frozen(Color.FromRgb(20, 27, 37)), edge = Ui.Frozen(Color.FromRgb(40, 52, 68)), titleB = Ui.Frozen(Color.FromRgb(120, 160, 200)),
+            labelB = Ui.Frozen(Color.FromRgb(135, 148, 165)), subB = Ui.Frozen(Color.FromRgb(170, 180, 195)), chipText = Ui.Frozen(Color.FromRgb(8, 12, 18)),
+            cyan = Ui.Frozen(Color.FromRgb(40, 190, 230)), simClock = Ui.Frozen(Color.FromRgb(255, 176, 40));
+        var cv = new Canvas { Width = W0, Height = H0, Background = Ui.Frozen(Color.FromRgb(10, 13, 19)) };
+
+        // text placed by its baseline, as on the tablet; with maxW it is cut short with an ellipsis, right = aligned to x
+        TextBlock Txt(string t, double x, double baseY, double size, Brush b, FontWeight wt, double maxW = 0, bool right = false)
+        {
+            var tb = new TextBlock { Text = t, FontSize = size, Foreground = b, FontWeight = wt, TextTrimming = TextTrimming.CharacterEllipsis };
+            if (maxW > 0) tb.MaxWidth = maxW;
+            if (right) { tb.TextAlignment = TextAlignment.Right; tb.Width = maxW > 0 ? maxW : 400; Canvas.SetLeft(tb, x - tb.Width); }
+            else Canvas.SetLeft(tb, x);
+            Canvas.SetTop(tb, baseY - size * 1.02);
+            cv.Children.Add(tb);
+            return tb;
+        }
+        void Box(double x, double y, double w, double h, Brush bg, Brush? stroke, double r)
+        {
+            var b = new Border { Width = w, Height = h, Background = bg, CornerRadius = new CornerRadius(r), BorderBrush = stroke, BorderThickness = new Thickness(stroke != null ? 1 : 0) };
+            Canvas.SetLeft(b, x); Canvas.SetTop(b, y); cv.Children.Add(b);
+        }
+        Border Chip(string text, double right, double cy, Brush bg, double size, Brush? fg = null)
+        {
+            var b = new Border { Background = bg, CornerRadius = new CornerRadius(size), Padding = new Thickness(size * 0.8, 0, size * 0.8, 0), Height = size * 1.9,
+                Child = new TextBlock { Text = text, FontSize = size, FontWeight = FontWeights.Bold, Foreground = fg ?? chipText, VerticalAlignment = VerticalAlignment.Center } };
+            b.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Canvas.SetLeft(b, right - b.DesiredSize.Width); Canvas.SetTop(b, cy - size * 0.95); cv.Children.Add(b);
+            return b;
+        }
+        // one label / value row across a card
+        void Row(string label, string value, Brush? c, double x, double baseY, double w, double labelSize, double valueSize)
+        {
+            var g = new Grid { Width = w };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.Children.Add(new TextBlock { Text = label.ToUpperInvariant(), FontSize = labelSize, Foreground = labelB, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 1) });
+            var v = new TextBlock { Text = value, FontSize = valueSize, FontWeight = FontWeights.Bold, Foreground = c ?? white, TextAlignment = TextAlignment.Right,
+                TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom };
+            Grid.SetColumn(v, 1); g.Children.Add(v);
+            Canvas.SetLeft(g, x); Canvas.SetTop(g, baseY - valueSize * 1.02); cv.Children.Add(g);
+        }
+
+        static string DurShort(float min)
+        {
+            int m = (int)MathF.Round(MathF.Abs(min));
+            return m >= 1440 ? $"{m / 1440}d {m % 1440 / 60:00}h" : m >= 60 ? $"{m / 60}h {m % 60:00}m" : m + "m";
+        }
+        float gameNow = s.GameTimeMin;
+        float arrAbs = simMin >= 0f && gameNow >= 0f ? gameNow + simMin : -1f;
+        int arrDays = arrAbs >= 0f ? (int)(arrAbs / 1440f) - (int)(gameNow / 1440f) : 0;
+        string arrBig = arrAbs >= 0f ? ClockText(arrAbs)[4..] : "-";
+        string arrSub = arrAbs >= 0f ? ClockText(arrAbs)[..3].ToUpperInvariant() + (arrDays > 0 ? $" +{arrDays}d" : "") : "";
+        string etaYours = "-";
+        if (realMin >= 0f)
+        {
+            var at = DateTime.Now.AddMinutes(Math.Round(realMin)); int dd = (at.Date - DateTime.Today).Days;
+            etaYours = at.ToString("HH:mm", inv) + (dd > 0 ? $" +{dd}d" : "");
+        }
+        float dueMin = j?.DueMin ?? -1f;
+        bool late = dueMin >= 0f && simMin >= 0f && simMin > dueMin;
+        float? spare = dueMin >= 0f && simMin >= 0f ? dueMin - simMin : null;
+        float avgNeeded = dueMin > 0f && remGameKm > 0f ? remGameKm / (dueMin / 60f) : -1f;
+        float fr = dt.FuelCapL > 0f ? dt.FuelL / dt.FuelCapL : -1f;
+        float needL = remGameKm * dt.ConsumptionLPerKm, atArrival = dt.FuelL - needL;
+        int planned = j?.PlannedKm ?? 0;
+        float progress = planned > 0 && remGameKm > 0f ? Math.Clamp(1f - remGameKm / planned, 0f, 1f) : 0f;
+        string market = dt.JobMarket.Replace('_', ' ').ToUpperInvariant(); if (market.Length == 0) market = "-";
+
+        // ---- header strip (y 0..92)
+        Box(0, 0, W0, 92, cardBg, edge, 8);
+        Txt("TRIP DETAILS", 14, 29, 13, titleB, FontWeights.SemiBold);
+        Chip(j != null ? "ON JOB" : "NO JOB", 112, 51, j != null ? cyan : Ui.Frozen(Color.FromRgb(120, 130, 145)), 8);
+        var reset = Chip("RESET TRIP", 14, 70, Ui.Frozen(Color.FromRgb(36, 92, 160)), 7.5, white);
+        Canvas.SetLeft(reset, 14);
+        reset.Cursor = System.Windows.Input.Cursors.Hand;
+        reset.MouseLeftButtonUp += (_, _) => { ResetTrip(); UpdateTrip(); };
+
+        Txt("FROM", 150, 45, 8, labelB, FontWeights.Normal);
+        Txt(j?.SrcCity is { Length: > 0 } fc ? fc : "-", 182, 45, 24, white, FontWeights.Bold, 170);
+        Txt(j?.SrcCompany ?? "", 182, 65, 11, labelB, FontWeights.Normal, 180);
+
+        Txt("ROUTE PROGRESS", 372, 22, 8.5, titleB, FontWeights.SemiBold);
+        Box(372, 29, 268, 20, Ui.Frozen(Color.FromRgb(34, 44, 58)), null, 4);
+        if (progress > 0.005f) Box(372, 29, 268 * progress, 20, cyan, null, 4);
+        Txt(Fmt(remGameKm) + " km left", 372, 71, 12, white, FontWeights.Bold);
+        if (planned > 0) Txt($"of {Fmt(planned)} km  ·  {progress * 100f:0}%", 640, 71, 10, subB, FontWeights.Normal, 160, right: true);
+
+        Txt("TO", 668, 45, 8, labelB, FontWeights.Normal);
+        Txt(j?.DestCity is { Length: > 0 } tc ? tc : (hasDest ? destName : "-"), 686, 45, 24, white, FontWeights.Bold, 165);
+        Txt(j?.DestCompany ?? "", 686, 65, 11, labelB, FontWeights.Normal, 165);
+
+        Txt("LOCAL", 860, 31, 8, labelB, FontWeights.Normal);
+        Txt("ETS2", 860, 61, 8, labelB, FontWeights.Normal);
+        Txt(DateTime.Now.ToString("HH:mm:ss", inv), 988, 33, 15, white, FontWeights.Bold, 100, right: true);
+        Txt(ClockText(gameNow).ToUpperInvariant(), 988, 63, 15, simClock, FontWeights.Bold, 100, right: true);
+
+        // ---- row 1: five headline cards (y 102..332)
+        const double gap = 8;
+        double cw = (W0 - gap * 4) / 5;
+        void DashCard(int i, string title, string big, Brush bigColor, string bigSub, string badge, Brush badgeColor, params (string K, string V, Brush? C)[] rows)
+        {
+            double x = i * (cw + gap), y = 102;
+            Box(x, y, cw, 230, cardBg, edge, 8);
+            double badgeW = badge.Length > 0 ? Chip(badge, x + cw - 10, y + 15, badgeColor, 6.5).DesiredSize.Width + 6 : 0;
+            Txt(title, x + 12, y + 18, 8.5, titleB, FontWeights.SemiBold, cw - 22 - badgeW);
+            double maxBig = cw - 24 - (bigSub.Length > 0 ? 64 : 0), sz = 36;
+            var bt = Txt(big, x + 12, y + 64, sz, bigColor, FontWeights.Bold);
+            bt.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            while (bt.DesiredSize.Width > maxBig && sz > 14) { sz -= 1; bt.FontSize = sz; bt.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); }
+            Canvas.SetTop(bt, y + 64 - sz * 1.02);
+            if (bigSub.Length > 0) Txt(bigSub, x + cw - 12, y + 62, 10.5, subB, FontWeights.Normal, 80, right: true);
+            double ry = y + 104;
+            foreach (var (k, v, c) in rows.Take(4)) { Row(k, v, c, x + 12, ry, cw - 24, 8, 12); ry += 30; }
+        }
+        float cargoDmg = dt.CargoDamage;
+        DashCard(0, "CARGO", j?.Cargo is { Length: > 0 } cg ? cg : "-", white, "", "", green,
+            ("Mass", j != null && j.MassKg > 0 ? Fmt(j.MassKg / 1000f, "0.0") + " t" : "-", null),
+            ("Units", (j?.Units ?? 0).ToString(inv), null),
+            ("Cargo damage", $"{cargoDmg:0}%", cargoDmg < 0.5f ? green : DamageBrush(cargoDmg)),
+            ("Trailer", dt.TrailerName.Length > 0 ? dt.TrailerName : "-", null));
+        DashCard(1, "ARRIVAL (ETS2 CLOCK)", arrBig, white, arrSub, "", green,
+            ("ETA (your clock)", etaYours, null),
+            ("Time left (game)", simMin >= 0f ? DurShort(simMin) : "-", null),
+            ("Time left (real)", realMin >= 0f ? DurShort(realMin) : "-", null),
+            ("Distance left", Fmt(remGameKm) + " km", null));
+        DashCard(2, "TIME REMAINING TO DEADLINE", dueMin >= 0f ? DurShort(dueMin) : "-", white, "",
+            dueMin < 0f ? "" : late ? "LATE" : "ON TIME", late ? Red : green,
+            ("Deadline", dueMin >= 0f && gameNow >= 0f ? ClockText(gameNow + dueMin).ToUpperInvariant() : "-", null),
+            ("ETA", arrAbs >= 0f ? ClockText(arrAbs).ToUpperInvariant() : "-", null),
+            ("Margin", spare is float sp ? (sp >= 0f ? "+" : "-") + DurShort(sp) : "-", spare < 0f ? Red : green),
+            ("Avg speed needed", avgNeeded >= 0f ? Fmt(avgNeeded) + " km/h" : "-", null));
+        DashCard(3, "FUEL FOR THIS TRIP", fr >= 0f ? $"{fr * 100f:0}%" : "-", fr < 0.12f ? Red : fr < 0.25f ? Amber : green,
+            $"{dt.FuelL:0} / {dt.FuelCapL:0} L", remGameKm <= 0f ? "" : atArrival < 0f ? "REFUEL NEEDED" : "ENOUGH FUEL", atArrival < 0f ? Red : green,
+            ("Range", Fmt(dt.RangeKm) + " km", null),
+            ("Consumption", Fmt(dt.ConsumptionLPerKm * 100f, "0.0") + " L/100km", null),
+            ("Needed for trip", Fmt(needL) + " L", null),
+            ("Fuel at arrival", Fmt(atArrival) + " L", atArrival < 0f ? Red : null));
+        DashCard(4, "JOB & INCOME", j != null && j.Income > 0 ? "€ " + Fmt(j.Income) : "-", white, "", "", green,
+            ("Planned distance", planned > 0 ? Fmt(planned) + " km" : "-", null),
+            ("Income rate", j != null && planned > 0 && j.Income > 0 ? "€ " + Fmt((float)j.Income / planned, "0.00") + "/km" : "-", null),
+            ("Job market", market, null),
+            ("Special job", market.Contains("SPECIAL") ? "YES" : "NO", null));
+
+        // ---- row 2: detail cards (y 342..562)
+        int n2 = Math.Clamp(row2.Count, 1, 5);
+        double cw2 = (W0 - gap * (n2 - 1)) / n2;
+        for (int i = 0; i < Math.Min(5, row2.Count); i++)
+        {
+            var (title, rows) = row2[i];
+            double x = i * (cw2 + gap), y = 342;
+            Box(x, y, cw2, 220, cardBg, edge, 8);
+            Txt(title, x + 12, y + 17, 8.5, titleB, FontWeights.SemiBold, cw2 - 20);
+            var rs = rows.Take(7).ToArray();
+            double step = Math.Min(27, (220 - 40) / (double)Math.Max(1, rs.Length)), ry = y + 42;
+            foreach (var (k, v, c) in rs) { Row(k, v, c, x + 12, ry, cw2 - 24, 8, 11); ry += step; }
+        }
+
+        tripPage.Child = new Viewbox
+        {
+            Child = cv, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(TripMenuW + 6, 6, 6, 6),
+        };
+    }
+
+    /// <summary>
+    /// The job info page always fills the window without scrolling, as large as possible: the cards are laid out in the number of columns
+    /// (1 to 4) that lets the whole page be drawn biggest in the space there is, and the page is then scaled to fit it exactly.
+    /// </summary>
+    void ShowTripPage(StackPanel page, WrapPanel? wrap)
+    {
+        const double menuW = TripMenuW;
+        double availW = Math.Max(200, (tripPage.ActualWidth > 0 ? tripPage.ActualWidth : DesignW) - menuW - 12);
+        double availH = Math.Max(150, (tripPage.ActualHeight > 0 ? tripPage.ActualHeight : DesignH) - 12);
+        if (wrap != null)
+        {
+            int best = 1; double bestScale = 0;
+            for (int cols = 1; cols <= 4; cols++)
+            {
+                wrap.Width = cols * (380 + 10);
+                wrap.InvalidateMeasure(); page.InvalidateMeasure();   // a direct Measure would otherwise reuse the first result
+                page.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                var d = page.DesiredSize;
+                double sc = Math.Min(availW / d.Width, availH / d.Height);
+                if (sc > bestScale + 0.001) { bestScale = sc; best = cols; }
+            }
+            wrap.Width = best * (380 + 10);
+        }
+        tripPage.Child = new Viewbox
+        {
+            Child = page, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both,
+            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(menuW + 6, 6, 6, 6),
+        };
     }
 
     void ShowElevation()
@@ -213,6 +430,13 @@ public sealed partial class MainWindow
         };
         sp.Children.Add(test);
 
+        sp.Children.Add(H("Voice control (microphone)"));
+        var vcOn = new CheckBox { Content = new TextBlock { Text = "Listen for spoken commands while the game has focus. Say the wake word, then a command, e.g. \"GPS, nearest fuel station\", \"GPS, take the job\", \"GPS, help\". It uses this PC's default microphone; recognition happens on this PC and nothing is recorded or sent.", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.VoiceControl, Foreground = Brushes.White };
+        sp.Children.Add(vcOn);
+        sp.Children.Add(new TextBlock { Text = "Wake word (one or two simple words, default GPS)", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0) });
+        var vcWake = Box(cfg.VoiceWake); vcWake.Width = 160; vcWake.HorizontalAlignment = HorizontalAlignment.Left; sp.Children.Add(vcWake);
+        sp.Children.Add(new TextBlock { Text = "Commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer, take the job, show job info, show the map, cancel the route, back to my route, how far, when do I arrive, what is next, speed limit, fuel level, lane guidance / cruise assist / voice guidance on or off.", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
+
         sp.Children.Add(H("Updates"));
         var updAuto = new CheckBox { Content = new TextBlock { Text = "Look for new versions automatically (about once a day; nothing is downloaded or installed)", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.CheckUpdates, Foreground = Brushes.White };
         sp.Children.Add(updAuto);
@@ -264,6 +488,8 @@ public sealed partial class MainWindow
             Topmost = pin.IsChecked == true; cfg.Topmost = Topmost; UpdatePinButton();
             cfg.Opacity = Opacity;
             cfg.CheckUpdates = updAuto.IsChecked == true;
+            bool vcChanged = (vcOn.IsChecked == true) != cfg.VoiceControl || vcWake.Text.Trim() != cfg.VoiceWake;
+            cfg.VoiceControl = vcOn.IsChecked == true; cfg.VoiceWake = vcWake.Text.Trim().Length > 0 ? vcWake.Text.Trim() : "GPS";
             cfg.ShowLanes = showLanes.IsChecked == true; if (!cfg.ShowLanes) SetLaneUi(null);
             cfg.OverlayAutoStart = ovAuto.IsChecked == true; cfg.OverlayPath = ovPath.Text.Trim();
             voice.Enabled = voiceOn.IsChecked == true; cfg.VoiceOn = voice.Enabled; UpdateVoiceButton();
@@ -276,6 +502,7 @@ public sealed partial class MainWindow
             cfg.RealDistances = realD.IsChecked == true;
             distScale = cfg.RealDistances ? 1f : cfg.DistScale; if (nav != null) nav.DistScale = distScale;
             cfg.Save();
+            if (vcChanged) ApplyVoiceControl(announce: true);
             if (reloadMap) { try { File.Delete(MapBuilder.MapService.MetaPath); } catch { /* ignore */ } _ = LoadMapAsync(); }
         }
         double opBefore = Opacity;
