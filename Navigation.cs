@@ -22,6 +22,8 @@ public sealed partial class MainWindow
     float routeRemainingM = -1f, routeEtaGameMin = -1f, paceRatio = 1f;
     long lastPaceMs, lastReroute;
     const float NearDestM = 120f;   // map metres: this close to the destination the app stops recalculating
+    const float AtFlagM = 20f;      // map metres: this close to the drop-off flag counts as arrived
+    (float X, float Z)? jobFlag;    // the drop-off spot in the company yard (where the game shows its delivery flag), when the map knows it
     bool offAnnounced, destIsJob, endHinted; long stillSinceMs;
     string lastNextText = "";
     // trip stats and alerts
@@ -64,7 +66,7 @@ public sealed partial class MainWindow
             if (c != null) ComputeRoute(c.X, c.Z, c.Name, announce: true);
         }
         if (autoTrip) { await Task.Delay(1500); if (!tripOpen) ToggleTrip(); }
-        // test hook: --open search | stops | trips | plan | poi | settings opens that screen (used to take pictures for the manual)
+        // test hook: --open search | stops | trips | plan | poi | settings | job opens that screen (job: routes to the job) (used to take pictures for the manual)
         switch (ArgAfter("--open"))
         {
             case "search": await Task.Delay(2500); ShowSearch(false); break;
@@ -73,6 +75,7 @@ public sealed partial class MainWindow
             case "plan": await Task.Delay(2500); ShowPlanner(); break;
             case "poi": await Task.Delay(2500); ShowPoiPicker(); break;
             case "settings": await Task.Delay(2500); ShowSettings(); break;
+            case "job": await Task.Delay(2500); Dlg.CloseOpen(); RouteToJob(); break;
         }
     }
 
@@ -91,7 +94,7 @@ public sealed partial class MainWindow
         if (s.SpeedLimitKmh > 0) { limitText.Text = s.SpeedLimitKmh.ToString(CultureInfo.InvariantCulture); limitBox.Visibility = Visibility.Visible; } else limitBox.Visibility = Visibility.Hidden;
         TrackTrip(s, now);
         UpdateBannerJob();
-        if (s.Connected) { UpdateAltitude(s); CheckHill(s, now); CheckNewJob(s); CheckJobEvents(s); CheckAlerts(s); UpdatePlace(now); NavTick(); }
+        if (s.Connected) { UpdateAltitude(s); CheckHill(s, now); CheckNewJob(s); CheckJobEvents(s); CheckAlerts(s); UpdatePlace(now); NavTick(); CheckGameGps(); }
     }
 
     // ------------------------------------------------------------------------ guidance --
@@ -124,7 +127,7 @@ public sealed partial class MainWindow
             return;
         if (st.Arrived)
         {
-            if (destIsJob) voice.Say("You have arrived at " + destName);
+            if (destIsJob) voice.Say(jobFlag != null ? "You have arrived at the drop off point" : "You have arrived at " + destName);
             mapView.FlagOn = false;
             infoText.Text = "Arrived at " + destName;
             SetBannerMessage("You have arrived"); ClearManeuver();
@@ -160,6 +163,17 @@ public sealed partial class MainWindow
     {
         var t = truck;
         if (t == null || t.DestCityId.Length == 0) return false;   // job delivered or cancelled: arrived
+        if (jobFlag is { } f)
+        {
+            // the drop-off spot is known: carry on to the flag (a straight line across the yard) and arrive there
+            float d = M.Hypot(motion.X - f.X, motion.Z - f.Z);
+            if (d < AtFlagM) return false;
+            if (!endHinted) { endHinted = true; voice.Say("The mapped route ends here. Follow the flag to the drop off point."); }
+            SetBannerMessage("Mapped route ends here - follow the flag");
+            ClearManeuver(); SetLaneUi(null);
+            SetInfo(destName, "Drop-off point: " + n.ShortDistance(d) + " in a straight line");
+            return true;
+        }
         float navKm = t.Detail?.NavDistanceKm ?? 0f;
         float gameM = navKm > 0.001f ? navKm * 1000f : MathF.Sqrt((motion.X - destX) * (motion.X - destX) + (motion.Z - destZ) * (motion.Z - destZ)) * cfg.DistScale;
         long now = clock.ElapsedMilliseconds;
@@ -202,6 +216,7 @@ public sealed partial class MainWindow
         if (!hasDest || routing || now - lastReroute < 4000) return;
         // inside the destination's yard or compound there are no mapped roads: do not recalculate (or keep saying so) there
         if (MathF.Sqrt((motion.X - destX) * (motion.X - destX) + (motion.Z - destZ) * (motion.Z - destZ)) < NearDestM) return;
+        if (jobFlag is { } f && M.Hypot(motion.X - f.X, motion.Z - f.Z) < NearDestM) return;
         // only recalculate once the truck is back on a mapped road (not while manoeuvring in a yard or compound)
         if (router != null && router.SnapTo(motion.X, motion.Z, motion.Bearing, 35f) == null) return;
         lastReroute = now;
@@ -220,7 +235,7 @@ public sealed partial class MainWindow
 
     void CancelRoute()
     {
-        resume = null; destIsPoi = false; destIsJob = false; mapView.FlagOn = false; waypoints.Clear(); afterM = 0; afterS = 0; SyncStops();
+        resume = null; destIsPoi = false; destIsJob = false; jobFlag = null; mapView.FlagOn = false; waypoints.Clear(); afterM = 0; afterS = 0; SyncStops();
         nav?.Clear();
         routeEtaGameMin = -1; routeRemainingM = -1; lastNextText = ""; paceRatio = 1; hasDest = false;
         mapView.RoutePts = Array.Empty<float>(); mapView.RouteEdgePt = Array.Empty<int>(); mapView.NextManeuver = null;
@@ -228,7 +243,8 @@ public sealed partial class MainWindow
         infoText.Text = "No route";
     }
 
-    void ComputeRoute(float x, float z, string name, bool announce = false, bool isPoi = false, bool reroute = false, bool keepStops = false, bool isJob = false)
+    void ComputeRoute(float x, float z, string name, bool announce = false, bool isPoi = false, bool reroute = false, bool keepStops = false, bool isJob = false,
+        (float X, float Z)? flag = null)
     {
         var r = router; var n = nav; var m = map;
         if (r == null || n == null || m == null) { Toast("Map not loaded yet"); return; }
@@ -244,6 +260,7 @@ public sealed partial class MainWindow
             }
             else { resume = null; if (!keepStops) waypoints = new(); }
             destIsPoi = isPoi; destIsJob = isJob; endHinted = false; stillSinceMs = 0;
+            jobFlag = isJob ? flag : null;
         }
         destX = x; destZ = z; destName = name; hasDest = true;
         if (!reroute && !isPoi && !keepStops) startLabel = place.Replace("Near ", "") is { Length: > 0 } pl ? pl : "Start";
@@ -287,7 +304,8 @@ public sealed partial class MainWindow
                 }
                 n.DistScale = distScale;
                 n.ArriveWord = legIsStop ? "your waypoint" : destIsJob ? "the destination area" : "your destination";
-                mapView.FlagOn = true; mapView.FlagX = x; mapView.FlagZ = z;
+                mapView.FlagOn = true; mapView.FlagLink = jobFlag != null;
+                (mapView.FlagX, mapView.FlagZ) = jobFlag ?? (x, z);
                 afterM = am; afterS = asec;
                 n.SetRoute(res, remaining, reroute);
                 mapView.RoutePts = pts; mapView.RouteLift = lift; mapView.RouteEdgePt = starts; mapView.RouteIdx = 0;
@@ -316,7 +334,16 @@ public sealed partial class MainWindow
     {
         var m = map!;
         var co = m.FindCompany(t.DestCityId, t.DestCompanyId);
-        if (co != null) { ComputeRoute(co.X, co.Z, t.DestCompany.Length > 0 ? t.DestCompany + ", " + t.DestCity : t.DestCity, announce: true, isJob: true); return; }
+        if (co != null)
+        {
+            // the route leads to the yard entrance (where the game's own route reaches the company); the flag stands at the drop-off spot inside
+            var yard = m.FindDrops(t.DestCityId, t.DestCompanyId);
+            var spot = yard?.Easy ?? yard?.Medium ?? yard?.Hard;
+            float tx = yard != null ? yard.Gate[0] : co.X, tz = yard != null ? yard.Gate[1] : co.Z;
+            ComputeRoute(tx, tz, t.DestCompany.Length > 0 ? t.DestCompany + ", " + t.DestCity : t.DestCity, announce: true, isJob: true,
+                flag: spot != null ? (spot[0], spot[1]) : null);
+            return;
+        }
         var c = m.FindCity(t.DestCityId) ?? m.Cities.FirstOrDefault(c => c.Key == City.Normalize(t.DestCity));
         if (c == null) { Toast($"Job destination '{t.DestCity}' is not on the loaded map"); return; }
         ComputeRoute(c.X, c.Z, c.Name, announce: true, isJob: true);
@@ -350,7 +377,7 @@ public sealed partial class MainWindow
         infoText.Text = "Arrived at " + destName;
         SetBannerMessage("You have arrived"); ClearManeuver();
         n.Clear(); mapView.RoutePts = Array.Empty<float>(); mapView.RouteEdgePt = Array.Empty<int>(); mapView.NextManeuver = null;
-        hasDest = false; destIsJob = false; SetLaneUi(null);
+        hasDest = false; destIsJob = false; jobFlag = null; SetLaneUi(null);
     }
 
     void CheckNewJob(TruckState t)
@@ -363,7 +390,16 @@ public sealed partial class MainWindow
         if (key.Length == 0) return;
         string name = PlaceName(t.DestCompany, t.DestCity);
         Dispatcher.BeginInvoke(new Action(() =>
-            Dlg.Message(this, "New job", $"Navigate to {name}?", ("Not now", null, false), ("Navigate", () => NavigateToJob(t), true))));
+        {
+            // while it is open, voice control answers it: "take the job" navigates, "not now" closes it
+            askAccept = () => NavigateToJob(t);
+            try
+            {
+                Dlg.Message(this, "New job", $"Navigate to {name}?" + (vctl?.Active == true ? $"\n\nSay \"{vctl.Wake}, take the job\" or \"{vctl.Wake}, not now\"." : ""),
+                    ("Not now", null, false), ("Navigate", () => NavigateToJob(t), true));
+            }
+            finally { askAccept = null; }
+        }));
     }
 
     // ----------------------------------------------------------------------------- lanes --

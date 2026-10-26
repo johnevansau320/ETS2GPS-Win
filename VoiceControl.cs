@@ -42,7 +42,10 @@ public sealed class VoiceControl : IDisposable
     /// <summary>Everything that can be said after the wake word (key, phrases), apart from the "find the nearest ..." family.</summary>
     public static readonly (string Key, string[] Phrases)[] Commands =
     {
-        ("job", new[] { "take the job", "take this job", "start the job", "navigate to the job", "route to the job", "go to the job", "take me to the delivery" }),
+        ("job", new[] { "take the job", "take this job", "start the job", "navigate to the job", "route to the job", "go to the job", "take me to the delivery",
+            "accept the job", "yes navigate", "navigate", "yes please" }),
+        ("gamegps", new[] { "follow the game route", "follow the game navigation", "go to the game destination", "use the game destination", "use the game route" }),
+        ("dismiss", new[] { "not now", "no thanks", "no thank you", "ignore the job", "skip the job", "don't navigate", "cancel", "close", "close the dialog" }),
         ("jobinfo", new[] { "show job info", "show the job info", "show job information", "open job info", "open the job info", "job info" }),
         ("map", new[] { "show the map", "back to the map", "return to the map", "show navigation", "back to navigation", "show the navigation screen", "close job info" }),
         ("cancel", new[] { "cancel the route", "cancel route", "cancel navigation", "stop navigation", "clear the route" }),

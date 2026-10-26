@@ -15,6 +15,9 @@ public sealed class MapControl : FrameworkElement
     public float TruckX, TruckZ, Bearing;       // Bearing: radians, clockwise from north
     public bool HasFix;
     public bool FlagOn; public float FlagX, FlagZ;   // the finishing flag at the destination
+    public bool FlagLink;   // the flag stands beyond the end of the mapped roads (a drop-off spot in a yard): a dashed line joins them
+    static readonly Pen FlagLinkPen = MakeFlagLinkPen();
+    static Pen MakeFlagLinkPen() { var p = new Pen(new SolidColorBrush(Color.FromArgb(230, 255, 255, 255)), 3) { DashStyle = new DashStyle(new double[] { 2, 1.5 }, 0), DashCap = PenLineCap.Round }; p.Freeze(); return p; }
     public float[] RoutePts = Array.Empty<float>();   // x,z pairs
     public int[] RouteEdgePt = Array.Empty<int>();    // pair index where each route edge starts
     public byte[] RouteLift = Array.Empty<byte>();    // per route point: height above the road it crosses (0.5 m units)
@@ -54,6 +57,10 @@ public sealed class MapControl : FrameworkElement
     // point-of-interest badges: a coloured rounded square with a white pictogram (see PoiIcons)
     static readonly Dictionary<int, Geometry> PoiGeo = PoiIcons.Paths.ToDictionary(kv => kv.Key, kv => { var g = Geometry.Parse(kv.Value); g.Freeze(); return g; });
     static readonly Dictionary<int, Brush> PoiFill = PoiIcons.Colors.ToDictionary(kv => kv.Key, kv => F(Color.FromRgb(kv.Value.R, kv.Value.G, kv.Value.B)));
+    // ferry and car-train crossings: a dashed sea line, not a road
+    static readonly Pen FerryPen = MakeFerryPen();
+    static Pen MakeFerryPen() { var p = new Pen(new SolidColorBrush(Color.FromArgb(170, 90, 160, 255)), 2) { DashStyle = new DashStyle(new double[] { 4, 3 }, 0) }; p.Freeze(); return p; }
+    readonly List<int> ferryEdges = new();
     static readonly Pen PoiEdge = new(new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)), 2.2);
     static readonly Brush PoiShadow = F(Color.FromArgb(90, 0, 0, 0));
 
@@ -300,9 +307,11 @@ public sealed class MapControl : FrameworkElement
         }
         bool showLocal = zoom > 0.3, showJunction = zoom > 0.45;
         foreach (var b in buckets) b.Clear();
+        ferryEdges.Clear();
         bool drawRoads = !(PlanMode && zoom < 0.06);   // zoomed far out while planning: just the route and the towns
         if (drawRoads) m.QueryEdges(cx, cz, radius, e =>
         {
+            if (m.IsFerry(e)) { ferryEdges.Add(e); return; }
             int cls = Math.Min(3, (int)m.ECls[e]);
             if ((cls == 0 && !showLocal) || (cls == 3 && !showJunction)) return;
             if (m.EPtStart[e + 1] - m.EPtStart[e] < 2) return;
@@ -411,6 +420,13 @@ public sealed class MapControl : FrameworkElement
             }
         }
         DrawRoads(buckets, 0);
+        foreach (int e in ferryEdges)
+        {
+            int a = m.EPtStart[e], b = m.EPtStart[e + 1] - 1;
+            var q0 = P(m.PtX[a], m.PtZ[a]); var q1 = P(m.PtX[b], m.PtZ[b]);
+            if (tilted && (q0.Sc < 0.28 || q1.Sc < 0.28)) continue;
+            dc.DrawLine(FerryPen, new Point(q0.X, q0.Y), new Point(q1.X, q1.Y));
+        }
 
         // route
         var rPts = PlanMode ? PlanPts : RoutePts; var rStart = PlanMode ? PlanEdgePt : RouteEdgePt; var rLift = PlanMode ? PlanLift : RouteLift;
@@ -471,6 +487,11 @@ public sealed class MapControl : FrameworkElement
         if (FlagOn && !PlanMode)
         {
             var q = P(FlagX, FlagZ);
+            if (FlagLink && RoutePts.Length >= 2)
+            {
+                var r = P(RoutePts[^2], RoutePts[^1]);
+                if (!(tilted && (q.Sc < 0.3 || r.Sc < 0.3))) dc.DrawLine(FlagLinkPen, new Point(r.X, r.Y), new Point(q.X, q.Y));
+            }
             if (!(tilted && q.Sc < 0.3) && q.X > -80 && q.X < W + 80 && q.Y > -80 && q.Y < H + 80)
                 Scaled(q.X, q.Y, Fs(q.Sc), () =>
                 {

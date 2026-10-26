@@ -152,6 +152,15 @@ public sealed class BuiltInServer : IDisposable
                 case "/update":
                     await Reply(s, 200, "application/json", Encoding.UTF8.GetBytes(UpdateJson?.Invoke() ?? "{\"available\":false}"));
                     return;
+                case "/drops.json":
+                    {
+                        if (!File.Exists(MapService.DropsPath)) { await Reply(s, 404, "text/plain", Encoding.ASCII.GetBytes("no drop-off points yet")); return; }
+                        await Reply(s, 200, "application/json", await File.ReadAllBytesAsync(MapService.DropsPath));
+                        return;
+                    }
+                case "/gamegps":
+                    await Reply(s, 200, "application/json", Encoding.UTF8.GetBytes(await GameGpsJson()));
+                    return;
                 case "/cruise":
                     {
                         string on = ParseQuery(query, "on");
@@ -206,6 +215,34 @@ public sealed class BuiltInServer : IDisposable
             await Reply(s, 200, Mime(name), ms.ToArray());
         }
         catch { /* client went away */ }
+    }
+
+    static readonly SemaphoreSlim gameGpsLock = new(1, 1);
+    static GameGpsState? gameGpsCache;
+
+    /// <summary>
+    /// The game's GPS destination from the newest save, for the tablet / browser version (which cannot read the PC's saves):
+    /// {"available", "savedMs", "ageSec", "onJob", "ahead": [[x, z], ...]}; the last point of "ahead" is the destination. A save is decoded once.
+    /// </summary>
+    static async Task<string> GameGpsJson()
+    {
+        await gameGpsLock.WaitAsync();
+        try
+        {
+            var newest = GameGps.NewestSave();
+            if (newest is not { } n) return "{\"available\":false}";
+            if ((gameGpsCache == null || gameGpsCache.SavedUtc != n.Utc) && DateTime.UtcNow - n.Utc > TimeSpan.FromSeconds(1.5))   // let the game finish writing
+                gameGpsCache = await Task.Run(() => GameGps.Read(n.File, n.Utc));
+            var g = gameGpsCache;
+            if (g == null) return "{\"available\":false}";
+            return JsonSerializer.Serialize(new
+            {
+                available = true, savedMs = new DateTimeOffset(g.SavedUtc).ToUnixTimeMilliseconds(), ageSec = (int)(DateTime.UtcNow - g.SavedUtc).TotalSeconds,
+                onJob = g.OnJob, ahead = g.Ahead.Select(p => new[] { MathF.Round(p.X, 1), MathF.Round(p.Z, 1) }),
+            });
+        }
+        catch (Exception e) { return JsonSerializer.Serialize(new { available = false, error = e.Message }); }
+        finally { gameGpsLock.Release(); }
     }
 
     static string ParseQuery(string q, string key)

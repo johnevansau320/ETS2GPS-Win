@@ -49,6 +49,15 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.9.0
+
+* **Drop-off flag**: a job route leads to the entrance of the company yard (where the game's own route reaches it) and the chequered flag stands on the **drop-off spot** inside, joined to the end of the route by a dashed line. The app tells you to follow the flag and announces *You have arrived at the drop off point* there. The drop-off spots (easy parking) come from the company yards in your game; the map is rebuilt once to add them.
+* **Follows the game's GPS when there is no job**: when you set a destination on the game's map, or drive to a pickup, the app reads it from your newest save (after the game's next autosave or a quick save) and offers to navigate there, through the game's waypoints. Saves are only read, never changed. Settings > Game GPS destination switches it off.
+* **Closed borders**: border crossings whose roads are all hidden in the game (the Russian borders, the Lebanon - Israel border) have gates that never open; routes now go round them.
+* **Ferries**: after a ferry crossing the route starts on the road (it could start back across the sea), and ferry and car-train crossings show as dashed blue lines instead of grey roads.
+* **Voice**: the new-job and game-GPS questions can be answered with *GPS, take the job* or *GPS, not now*; *GPS, follow the game route* goes where the game's GPS is set.
+* The tablet / browser version gets the drop-off spots and the game's GPS destination from this app (`/drops.json`, `/gamegps`).
+
 ## New in 1.8.0
 
 * **Voice control**: drive the app by voice while the game has the focus. Say the wake word ("GPS") and a command, for example "GPS, nearest fuel station". Switch it on in Settings > Voice control. See *Voice control* below.

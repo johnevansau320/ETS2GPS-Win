@@ -12,13 +12,15 @@ namespace Ets2Gps.MapBuilder;
 public static class BuildMap
 {
     /// <summary>Changes whenever the builder's output could change (it triggers an automatic rebuild).</summary>
-    public const int FormatVersion = 18;
+    public const int FormatVersion = 20;
     /// <summary>The binary layout the app reads.</summary>
     public const int FileVersion = 10;
 
     const double LaneW = 4.5;
     static readonly Dictionary<uint, int> SpawnPoi = new() { [3] = 1, [4] = 2, [5] = 3, [6] = 4, [7] = 5, [8] = 8, [15] = 6, [16] = 7 };
     static readonly UInt128 HudParking = Sii.StrToToken("hud_parking");
+    // prefab spawn point types of a company yard
+    const uint SpawnUnloadEasy = 2, SpawnCompany = 13, SpawnUnloadMedium = 19, SpawnUnloadHard = 20;
     static readonly string[] NotRoundaboutWords = { "gas", "plaza", "parking", "depot", "service", "station", "tshape", "truckstop" };
 
     /// <summary>Overlay token such as "al_sh2", "at_e45", "b_a1" -> the text of the road-number shield ("SH 2", "E45", "A1"), or null for other overlays.</summary>
@@ -430,8 +432,30 @@ public static class BuildMap
         public ulong A, B; public int Flags, Cls, Speed; public List<(double X, double Z)> Pts = new(); public List<double>? Ys; public uint Jid; public int Wq;
     }
 
+    /// <summary>
+    /// Writes etsmap.drops.json: for each company location, the entrance point of its yard and the easy / medium / hard drop-off spots
+    /// (where the game puts the delivery flag). The yard is the company prefab whose company point is nearest, within 250 m.
+    /// </summary>
+    static void WriteDrops(string path, IEnumerable<(string Id, string City, double X, double Z)> companies,
+        List<(double GX, double GZ, (double X, double Z)? Easy, (double X, double Z)? Medium, (double X, double Z)? Hard)> yards, Action<string> log)
+    {
+        static float[]? P((double X, double Z)? p) => p is { } q ? new[] { (float)Math.Round(q.X, 1), (float)Math.Round(q.Z, 1) } : null;
+        var list = new List<CompanyDrops>();
+        foreach (var (id, city, x, z) in companies)
+        {
+            int best = -1; double bd = 250;
+            for (int i = 0; i < yards.Count; i++) { double d = Hy(yards[i].GX - x, yards[i].GZ - z); if (d < bd) { bd = d; best = i; } }
+            if (best < 0) continue;
+            var y = yards[best];
+            if (y.Easy == null && y.Medium == null && y.Hard == null) continue;
+            list.Add(new CompanyDrops { Company = id, City = city, Gate = P((y.GX, y.GZ))!, Easy = P(y.Easy), Medium = P(y.Medium), Hard = P(y.Hard) });
+        }
+        File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(list));
+        log($"{list.Count} company drop-off points");
+    }
+
     /// <summary>Builds etsmap.bin (zlib-compressed) into outPath.</summary>
-    public static void Build(FileSystem fs, string outPath, Action<string> log, Action<string, double>? progress = null, string? assetsPath = null)
+    public static void Build(FileSystem fs, string outPath, Action<string> log, Action<string, double>? progress = null, string? assetsPath = null, string? dropsPath = null)
     {
         var t0 = DateTime.UtcNow;
         progress?.Invoke("Reading the game's road definitions…", 0);
@@ -478,6 +502,28 @@ public static class BuildMap
 
         int npref = 0, nonav = 0, pdone = 0;
         int dbgN = 0, dbgBig = 0; double dbgSum0 = 0, dbgSum1 = 0;
+        // Closed border crossings: a border checkpoint whose drivable roads are all hidden from the game's map (the Russian borders, the
+        // Lebanon - Israel border). Its gates never open and the game's navigation never routes through it, so its paths are left out.
+        var roadsAt = new Dictionary<ulong, (int Hidden, int Shown)>();
+        foreach (var (_, su, eu, look, secret, _, hid) in roads)
+        {
+            var rl = defs.RoadLooks[look];
+            if (secret || rl.DriveLeft + rl.DriveRight == 0) continue;
+            foreach (var u in new[] { su, eu })
+            {
+                var c = roadsAt.GetValueOrDefault(u);
+                roadsAt[u] = hid ? (c.Hidden + 1, c.Shown) : (c.Hidden, c.Shown + 1);
+            }
+        }
+        bool ClosedBorder(List<ulong> unodes)
+        {
+            int hidden = 0, shown = 0;
+            foreach (var u in unodes) if (roadsAt.TryGetValue(u, out var c)) { hidden += c.Hidden; shown += c.Shown; }
+            return hidden > 0 && shown == 0;
+        }
+        int closedBorders = 0;
+        // company yards: the company point (where the game's GPS route ends, at the entrance) and the drop-off spots inside
+        var yards = new List<(double GX, double GZ, (double X, double Z)? Easy, (double X, double Z)? Medium, (double X, double Z)? Hard)>();
         foreach (var (uid, ptok, unodes, origin, secret, _, hid) in prefabs)
         {
             if ((++pdone & 0x3FF) == 0) progress?.Invoke("Building the road network…", (double)pdone / prefabs.Count);
@@ -489,6 +535,12 @@ public static class BuildMap
             double sx = onode.X - mpo.X, sz = onode.Z - mpo.Z;
             (double X, double Z) Tf((double X, double Z) p) => RotatePoint(sx + p.X, sz + p.Z, rot, onode.X, onode.Z);
             npref++;
+            if (!secret && pf.Spawns.Any(sp => sp.Type == SpawnCompany))
+            {
+                (double X, double Z)? At(uint type) { foreach (var sp in pf.Spawns) if (sp.Type == type) return Tf((sp.X, sp.Z)); return null; }
+                var gate = At(SpawnCompany)!.Value;
+                yards.Add((gate.X, gate.Z, At(SpawnUnloadEasy), At(SpawnUnloadMedium), At(SpawnUnloadHard)));
+            }
             if (!hid && !secret)
             {
                 foreach (var sp in pf.Spawns)
@@ -506,6 +558,7 @@ public static class BuildMap
             double dy = col.NodeY.GetValueOrDefault(unodes[0]) - (origin < pf.NodeY.Count ? pf.NodeY[origin] : 0);
             var plane = PrefabLanes(pf, curves);
             string path = defs.PrefabPaths.TryGetValue(ptok, out var pp) ? pp.ToLowerInvariant() : "";
+            if (path.Contains("/border") && ClosedBorder(unodes)) { closedBorders++; continue; }
             // unique id per placed junction (the game's item uids collide when truncated to 32 bits)
             uint jid = (uint)(junctions.Count + 1);
             if (!ringCache.TryGetValue(ptok, out var isRing))
@@ -532,7 +585,7 @@ public static class BuildMap
             }
         }
         log($"junction height anchor: {dbgN} paths, mean start error {dbgSum0 / Math.Max(1, dbgN):0.00} m, end {dbgSum1 / Math.Max(1, dbgN):0.00} m, {dbgBig} over 2 m");
-        log($"prefabs used: {npref} ({nonav} with unreadable nav data); {graph.Count} graph edges");
+        log($"prefabs used: {npref} ({nonav} with unreadable nav data, {closedBorders} closed border crossings left out); {graph.Count} graph edges");
 
         // Self-check one-way directions: at a node that junction paths only enter (or only leave), the road attached to it must
         // leave (or enter). Look types that disagree overall are flipped.
@@ -660,6 +713,7 @@ public static class BuildMap
         w.Write((uint)comp.Count);
         foreach (var (cid, city, x, z) in comp.Values) { Str(cid); Str(city); w.Write(F32(x)); w.Write(F32(z)); }
         log($"{comp.Count} company locations");
+        if (dropsPath != null) WriteDrops(dropsPath, comp.Values, yards, log);
         pois.AddRange(col.Overlays);
         foreach (var (_, _, _, train, fx, fz) in col.Ferries) pois.Add((train ? 10 : 9, fx, fz));   // ferry and car-train terminals
         var grid = new Dictionary<(int, long, long), List<(double X, double Z)>>();

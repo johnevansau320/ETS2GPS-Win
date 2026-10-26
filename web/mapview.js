@@ -10,6 +10,7 @@ class MapView {
     this.map = null;
     this.truckX = 0; this.truckZ = 0; this.bearing = 0; this.hasFix = false;
     this.flagOn = false; this.flagX = 0; this.flagZ = 0; // the finishing flag at the destination
+    this.flagLink = false; // the flag stands beyond the end of the mapped roads (a drop-off spot in a yard): a dashed line joins them
     this.routePts = new Float32Array(0); this.routeEdgePt = new Int32Array(0); this.routeIdx = 0; this.routeLift = new Uint8Array(0); this.planLift = new Uint8Array(0);
     this.stops = []; // [{x,z}]
     this.nextManeuver = null;
@@ -176,8 +177,10 @@ class MapView {
     const fs = (sc) => (tilted ? Math.min(1.1, Math.max(0.5, Math.pow(sc, 0.6))) : 1);
     const showLocal = zoomFactor > 0.3, showJunction = zoomFactor > 0.45;
     for (const b of this.bufs) b.length = 0;
+    const ferries = [];
     const drawRoads = !(this.planMode && zoomFactor < 0.06);   // zoomed far out while planning: just the route and the towns
     if (drawRoads) m.queryEdges(cx, cz, radius, (e) => {
+      if (m.isFerry(e)) { ferries.push(e); return; }
       const cls = Math.min(3, m.eCls[e]);
       if ((cls === 0 && !showLocal) || (cls === 3 && !showJunction)) return;
       if (m.ePtStart[e + 1] - m.ePtStart[e] < 2) return;
@@ -257,6 +260,17 @@ class MapView {
       for (const cls of order) paths[cls].forEach((p, bd) => { if (p) { c.strokeStyle = this.colors[cls]; c.lineWidth = wid(cls, bd); c.stroke(p); } });
     };
     drawRoadSets(this.bufs, 0);
+    // ferry and car-train crossings: a dashed sea line, not a road
+    if (ferries.length) {
+      c.save(); c.strokeStyle = 'rgba(90,160,255,0.67)'; c.lineWidth = 2; c.setLineDash([4, 3]);
+      for (const e of ferries) {
+        const a = m.ePtStart[e], b = m.ePtStart[e + 1] - 1;
+        const q0 = proj(m.ptX[a], m.ptZ[a]), q1 = proj(m.ptX[b], m.ptZ[b]);
+        if (tilted && (q0[2] < 0.28 || q1[2] < 0.28)) continue;
+        c.beginPath(); c.moveTo(q0[0], q0[1]); c.lineTo(q1[0], q1[1]); c.stroke();
+      }
+      c.restore();
+    }
 
     // route
     const rp0 = this.planMode ? this.planPts : this.routePts, re0 = this.planMode ? this.planEdgePt : this.routeEdgePt;
@@ -313,7 +327,14 @@ class MapView {
 
     // finishing flag at the destination (the end of the mapped road can be well short of it)
     if (this.flagOn && !this.planMode) {
-      const q = proj(this.flagX, this.flagZ);
+      const q = proj(this.flagX, this.flagZ), rp = this.routePts;
+      if (this.flagLink && rp.length >= 2) {
+        const r = proj(rp[rp.length - 2], rp[rp.length - 1]);
+        if (!(tilted && (q[2] < 0.3 || r[2] < 0.3))) {
+          c.save(); c.strokeStyle = 'rgba(255,255,255,0.9)'; c.lineWidth = 3; c.lineCap = 'round'; c.setLineDash([6, 4.5]);
+          c.beginPath(); c.moveTo(r[0], r[1]); c.lineTo(q[0], q[1]); c.stroke(); c.restore();
+        }
+      }
       if (visible(q, 80, 80)) at(q[0], q[1], fs(q[2]), () => {
         c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(q[0], q[1] + 1, 7, 3, 0, 0, Math.PI * 2); c.fill();
         c.strokeStyle = '#fff'; c.lineWidth = 3.4; c.lineCap = 'round'; c.beginPath(); c.moveTo(q[0], q[1]); c.lineTo(q[0], q[1] - 50); c.stroke();

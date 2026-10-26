@@ -12,7 +12,7 @@ public static class MapBuilderCli
             string gd = GameFiles.FindGameDir();
             Log("game: " + gd);
             var (fs, _) = GameFiles.MountEverything(gd, Log);
-            BuildMap.Build(fs, outPath, Log, null, outPath + ".assets");
+            BuildMap.Build(fs, outPath, Log, null, outPath + ".assets", outPath + ".drops.json");
             return 0;
         }
         catch (Exception e) { Log("FAILED: " + e); return 1; }

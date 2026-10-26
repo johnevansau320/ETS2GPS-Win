@@ -8,6 +8,7 @@ public sealed partial class MainWindow
 {
     VoiceControl? vctl;
     long lastVoiceCmdMs; string lastVoiceKey = "";
+    Action? askAccept;   // a "navigate there?" question is on screen (a new job, or the game's GPS destination): what accepting it does
 
     /// <summary>Starts or stops listening to match the setting.</summary>
     void ApplyVoiceControl(bool announce)
@@ -56,9 +57,20 @@ public sealed partial class MainWindow
         switch (key)
         {
             case "job":
+                // answers the question on screen if there is one (the route announcement is spoken by the navigation itself)
+                if (askAccept is { } accept && Dlg.CloseOpen(accept)) break;
                 if (!inGame || map == null) { Reply("The game is not running yet."); return; }
                 if (t!.DestCityId.Length == 0 && t.DestCity.Length == 0) { Reply("The game reports no active job."); return; }
-                NavigateToJob(t);   // speaks the route announcement itself
+                NavigateToJob(t);
+                break;
+            case "gamegps":
+                if (!inGame || map == null) { Reply("The game is not running yet."); return; }
+                CheckGameGps(force: true);
+                break;
+            case "dismiss":
+                if (askAccept != null) { Dlg.CloseOpen(); Reply("OK, not navigating there."); }
+                else if (Dlg.CloseOpen()) Reply("Closed.");
+                else Reply("There is nothing to close.");
                 break;
             case "jobinfo":
                 if (!tripOpen) ToggleTrip();
@@ -69,6 +81,7 @@ public sealed partial class MainWindow
                 Reply("Map.");
                 break;
             case "cancel":
+                if (askAccept != null) { Dlg.CloseOpen(); Reply("OK, not navigating there."); return; }
                 if (!hasDest) { Reply("There is no route to cancel."); return; }
                 CancelRoute(); Reply("Route cancelled.");
                 break;
@@ -108,8 +121,8 @@ public sealed partial class MainWindow
                 Reply("Voice guidance off."); voice.Enabled = false; cfg.VoiceOn = false; cfg.Save(); UpdateVoiceButton();
                 break;
             case "help":
-                Reply($"Say {vctl?.Wake ?? "GPS"}, then: nearest fuel station, rest area, service centre, weigh station, garage or truck dealer. Take the job. Show job info, or show the map, or back to navigation. Cancel the route, or back to my route. How far, when do I arrive, what is next, speed limit, fuel level. Lane guidance, cruise assist or voice guidance on or off.");
-                Toast("Voice commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer · take the job · show job info · show the map · cancel the route · back to my route · how far · when do I arrive · what is next · speed limit · fuel level · lane guidance, cruise assist, voice guidance on/off");
+                Reply($"Say {vctl?.Wake ?? "GPS"}, then: nearest fuel station, rest area, service centre, weigh station, garage or truck dealer. Take the job, or not now when the new job question is on screen. Follow the game route, to go where the game's GPS is set. Show job info, or show the map, or back to navigation. Cancel the route, or back to my route. How far, when do I arrive, what is next, speed limit, fuel level. Lane guidance, cruise assist or voice guidance on or off.");
+                Toast("Voice commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer · take the job / not now · follow the game route · show job info · show the map · cancel the route · back to my route · how far · when do I arrive · what is next · speed limit · fuel level · lane guidance, cruise assist, voice guidance on/off");
                 break;
         }
     }

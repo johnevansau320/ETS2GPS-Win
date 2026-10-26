@@ -18,6 +18,24 @@ public sealed record Poi(int Type, float X, float Z)
 
 public sealed record Company(string Id, string CityId, float X, float Z);
 
+/// <summary>A company's yard (etsmap.drops.json): its entrance point and the drop-off spots where the game puts the delivery flag, as [x, z].</summary>
+public sealed class CompanyDrops
+{
+    public string Company { get; set; } = "";
+    public string City { get; set; } = "";
+    public float[] Gate { get; set; } = Array.Empty<float>();
+    public float[]? Easy { get; set; }
+    public float[]? Medium { get; set; }
+    public float[]? Hard { get; set; }
+
+    public static Dictionary<string, CompanyDrops> Index(IEnumerable<CompanyDrops> list)
+    {
+        var d = new Dictionary<string, CompanyDrops>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in list) d.TryAdd(c.Company + "/" + c.City, c);
+        return d;
+    }
+}
+
 /// <summary>A border crossing: Kind 0 = checkpoint symbol, 1 = the flag of the country being entered (Cc = ISO alpha-2).</summary>
 public sealed record BorderPoint(int Kind, string Cc, float X, float Z);
 
@@ -80,6 +98,7 @@ public sealed class MapData
     public List<MapArea> Areas = new();
     public List<BorderPoint> Borders = new();
     public Dictionary<string, string> CityCountry = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, CompanyDrops> Drops = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Per road point: height above the road it crosses, in 0.5 m units (0 = on the ground). Empty when the map has none.</summary>
     public byte[] PtLift = Array.Empty<byte>();
     public bool[] EHasLift = Array.Empty<bool>();
@@ -297,6 +316,7 @@ public sealed class MapData
     }
 
     public City? FindCity(string id) => Cities.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+    public CompanyDrops? FindDrops(string cityId, string companyId) => Drops.TryGetValue(companyId + "/" + cityId, out var d) ? d : null;
     public Company? FindCompany(string cityId, string companyId) =>
         Companies.FirstOrDefault(c => string.Equals(c.Id, companyId, StringComparison.OrdinalIgnoreCase) && string.Equals(c.CityId, cityId, StringComparison.OrdinalIgnoreCase));
 }

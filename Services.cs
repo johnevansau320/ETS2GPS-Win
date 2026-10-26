@@ -37,6 +37,7 @@ public sealed class AppSettings
     public bool CruiseAutoLimit { get; set; } = true;
     /// <summary>Show the lane guidance panel on the map (and in the lane overlay window).</summary>
     public bool ShowLanes { get; set; } = true;
+    public bool FollowGameGps { get; set; } = true;   // offer to route to the game's GPS destination when there is no job
     public bool VoiceOn { get; set; } = true;
     /// <summary>Listen on the microphone for spoken commands ("GPS, nearest fuel station"). Off by default; recognised on this PC, nothing is recorded or sent.</summary>
     public bool VoiceControl { get; set; } = false;

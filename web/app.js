@@ -19,6 +19,8 @@ let distScale = realDist ? 1 : simScale;   // what map metres are multiplied by 
 let avoidFerries = ls.get('ferries', false);
 let hasDest = false, destX = 0, destZ = 0, destName = '', destIsPoi = false;
 let offAnnounced = false, destIsJob = false, endHinted = false, stillSince = 0;
+let jobFlag = null; // {x, z}: the drop-off spot in the company yard (where the game shows its delivery flag), when known
+let followGameGps = ls.get('gamegps', true); // offer to route to the game's GPS destination when there is no job
 let resume = null; // {x,z,name,stops} while a POI detour is active
 let waypoints = [];
 let afterM = 0, afterS = 0, startLabel = 'Start';
@@ -172,11 +174,23 @@ async function loadMap() {
     map = m; router = rt; nav = new Navigator(m, rt); nav.distScale = distScale;
     mapView.map = m;
     loadAssets();
+    loadDrops(m);
     setBannerMessage(null);
     toast('Map loaded: ' + m.cities.length + ' cities, ' + fmt(m.edgeCount) + ' road segments' + (m.laneN.length ? ', with lane data' : ' - no lane data: rebuild the map with the updated companion'));
   } catch (e) {
     setBannerMessage('Could not load the map: ' + (e.message || e));
   }
+}
+
+// The companies' drop-off spots (the delivery flag goes there): served by the Windows app next to the map, optional.
+async function loadDrops(m) {
+  try {
+    const r = await fetch('/drops.json', { cache: 'no-cache' });
+    if (!r.ok) return;
+    const list = await r.json(), d = new Map();
+    for (const c of list) if (c.Gate) d.set((c.Company + '/' + c.City).toLowerCase(), c);
+    m.drops = d;
+  } catch (e) { /* no drop-off points: job routes end at the company as before */ }
 }
 
 // Logos and flags are optional: older PCs / companions do not have them.
@@ -259,7 +273,7 @@ function onTruck(s) {
   trackTrip(s, now);
   updateBannerJob();
   if (tripOpen) updateTrip();
-  if (s.connected) { updateAltitude(s); checkHill(s, now); checkNewJob(s); checkJobEvents(s); checkAlerts(s); updatePlace(now); navTick(); }
+  if (s.connected) { updateAltitude(s); checkHill(s, now); checkNewJob(s); checkJobEvents(s); checkAlerts(s); updatePlace(now); navTick(); checkGameGps(now); }
 }
 
 // ------------------------------------------------------------------------- navigation --
@@ -286,7 +300,7 @@ function navTick() {
   }
   if (st.arrived && destIsJob && holdAtRouteEnd(n)) return;
   if (st.arrived) {
-    if (destIsJob) voice.say('You have arrived at ' + destName);
+    if (destIsJob) voice.say(jobFlag ? 'You have arrived at the drop off point' : 'You have arrived at ' + destName);
     mapView.flagOn = false;
     $('info').textContent = 'Arrived at ' + destName;
     setBannerMessage('You have arrived'); clearManeuver();
@@ -320,6 +334,17 @@ const laneHidden = () => tripOpen;
 function holdAtRouteEnd(n) {
   const t = truck;
   if (!t || !t.destCityId) return false; // job delivered or cancelled: arrived
+  if (jobFlag) {
+    // the drop-off spot is known: carry on to the flag (a straight line across the yard) and arrive there
+    const d = Math.hypot(motion.x - jobFlag.x, motion.z - jobFlag.z);
+    if (d < 20) return false;
+    if (!endHinted) { endHinted = true; voice.say('The mapped route ends here. Follow the flag to the drop off point.'); }
+    setBannerMessage('Mapped route ends here - follow the flag');
+    clearManeuver(); setLanes(null);
+    $('info').textContent = destName + '\nDrop-off point: ' + n.shortDistance(d) + ' in a straight line';
+    offAnnounced = false;
+    return true;
+  }
   const navKm = t.detail ? t.detail.navDistanceKm : 0;
   const gameM = navKm > 0.001 ? navKm * 1000 : Math.hypot(motion.x - destX, motion.z - destZ) * simScale;
   const now = performance.now();
@@ -349,6 +374,7 @@ function rerouteIfNeeded() {
   if (!hasDest || routing || now - lastReroute < 4000) return;
   // inside the destination's yard or compound there are no mapped roads: do not recalculate (or keep saying so) there
   if (Math.hypot(motion.x - destX, motion.z - destZ) < 120) return;
+  if (jobFlag && Math.hypot(motion.x - jobFlag.x, motion.z - jobFlag.z) < 120) return;
   // only recalculate once the truck is back on a mapped road (not while manoeuvring in a yard or compound)
   if (router && !router.snap(motion.x, motion.z, motion.bearing, 35)) return;
   lastReroute = now;
@@ -358,7 +384,7 @@ function rerouteIfNeeded() {
 function rerouteForModeChange() { if (hasDest && nav && nav.active && !routing) computeRoute(destX, destZ, destName, { reroute: true }); }
 
 function cancelRoute() {
-  resume = null; destIsPoi = false; destIsJob = false; mapView.flagOn = false; waypoints = []; afterM = 0; afterS = 0; syncStops();
+  resume = null; destIsPoi = false; destIsJob = false; jobFlag = null; mapView.flagOn = false; waypoints = []; afterM = 0; afterS = 0; syncStops();
   if (nav) nav.clear();
   routeEtaGameMin = -1; routeRemainingM = -1; lastNextText = ''; paceRatio = 1; hasDest = false;
   mapView.routePts = new Float32Array(0); mapView.routeEdgePt = new Int32Array(0); mapView.nextManeuver = null;
@@ -366,7 +392,7 @@ function cancelRoute() {
   $('info').textContent = 'No route';
 }
 
-/** opts: announce, isPoi, reroute, keepStops */
+/** opts: announce, isPoi, isJob, reroute, keepStops, flag ({x, z}: the drop-off spot of a job) */
 function computeRoute(x, z, name, opts = {}) {
   const r = router, n = nav, m = map;
   if (!r || !n || !m) { toast('Map not loaded yet'); return; }
@@ -379,6 +405,7 @@ function computeRoute(x, z, name, opts = {}) {
       waypoints = [];
     } else { resume = null; if (!opts.keepStops) waypoints = []; }
     destIsPoi = !!opts.isPoi; destIsJob = !!opts.isJob; endHinted = false; stillSince = 0;
+    jobFlag = opts.isJob ? opts.flag || null : null;
   }
   destX = x; destZ = z; destName = name; hasDest = true;
   if (!opts.reroute && !opts.isPoi && !opts.keepStops) startLabel = place.replace(/^Near /, '') || 'Start';
@@ -413,7 +440,8 @@ function computeRoute(x, z, name, opts = {}) {
       res.edges.forEach((de, i) => { starts[i] = p; for (let k = 0; k < m.deCount(de); k++) { pts[p * 2] = m.deX(de, k); pts[p * 2 + 1] = m.deZ(de, k); lift[p] = Math.round(m.deLift(de, k) * 2); p++; } });
       n.distScale = distScale;
       n.arriveWord = legIsStop ? 'your waypoint' : destIsJob ? 'the destination area' : 'your destination';
-      mapView.flagOn = true; mapView.flagX = x; mapView.flagZ = z;
+      mapView.flagOn = true; mapView.flagLink = !!jobFlag;
+      mapView.flagX = jobFlag ? jobFlag.x : x; mapView.flagZ = jobFlag ? jobFlag.z : z;
       afterM = am; afterS = asec;
       n.setRoute(res, remaining, !!opts.reroute);
       mapView.routePts = pts; mapView.routeLift = lift; mapView.routeEdgePt = starts; mapView.routeIdx = 0;
@@ -430,7 +458,14 @@ function computeRoute(x, z, name, opts = {}) {
 
 function navigateToJob(t) {
   const co = map.findCompany(t.destCityId, t.destCompanyId);
-  if (co) { computeRoute(co.x, co.z, t.destCompany ? t.destCompany + ', ' + t.destCity : t.destCity, { announce: true, isJob: true }); return; }
+  if (co) {
+    // the route leads to the yard entrance (where the game's own route reaches the company); the flag stands at the drop-off spot inside
+    const yard = map.drops ? map.drops.get((t.destCompanyId + '/' + t.destCityId).toLowerCase()) : null;
+    const spot = yard ? yard.Easy || yard.Medium || yard.Hard : null;
+    computeRoute(yard ? yard.Gate[0] : co.x, yard ? yard.Gate[1] : co.z, t.destCompany ? t.destCompany + ', ' + t.destCity : t.destCity,
+      { announce: true, isJob: true, flag: spot ? { x: spot[0], z: spot[1] } : null });
+    return;
+  }
   const c = map.findCity(t.destCityId) || map.cities.find((c) => c.key === normalizeName(t.destCity));
   if (!c) { toast("Job destination '" + t.destCity + "' is not on the loaded map"); return; }
   computeRoute(c.x, c.z, c.name, { announce: true, isJob: true });
@@ -462,7 +497,48 @@ function finishRoute(say) {
   $('info').textContent = 'Arrived at ' + destName;
   setBannerMessage('You have arrived'); clearManeuver();
   nav.clear(); mapView.routePts = new Float32Array(0); mapView.routeEdgePt = new Int32Array(0); mapView.nextManeuver = null;
-  hasDest = false; destIsJob = false; setLanes(null);
+  hasDest = false; destIsJob = false; jobFlag = null; setLanes(null);
+}
+
+// ---- the game's own GPS destination when there is no job (read from the newest save by the Windows app)
+let gameGpsCheck = -100000, gameGpsBusy = false, gameGpsSeen = 0, gameGpsOffered = '';
+function checkGameGps(now) {
+  const t = truck;
+  if (!map || !t || !followGameGps || gameGpsBusy || now - gameGpsCheck < 5000 || t.destCityId) return;
+  gameGpsCheck = now; gameGpsBusy = true;
+  fetch('/gamegps', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j) offerGameGps(j); })
+    .catch(() => {}).finally(() => { gameGpsBusy = false; });
+}
+function offerGameGps(j) {
+  if (!j.available || j.onJob || j.savedMs === gameGpsSeen) return;
+  gameGpsSeen = j.savedMs;
+  if (j.ageSec > 15 * 60 || !j.ahead || !j.ahead.length || (truck && truck.destCityId)) return; // older saves: the game has probably moved on since
+  const [x, z] = j.ahead[j.ahead.length - 1];
+  const key = Math.round(x / 20) + '/' + Math.round(z / 20);
+  if (key === gameGpsOffered) return;
+  gameGpsOffered = key;
+  if (Math.hypot(motion.x - x, motion.z - z) < 150) return; // already there
+  if (hasDest && Math.hypot(destX - x, destZ - z) < 80) return; // already going there
+  const name = describePoint(x, z), via = j.ahead.length > 1 ? ' (via ' + (j.ahead.length - 1) + ' waypoint' + (j.ahead.length > 2 ? 's' : '') + ')' : '';
+  modal({
+    title: 'Game GPS', message: "The game's GPS is set to " + name + ', ' + gameDist(Math.hypot(motion.x - x, motion.z - z)) + ' away' + via + '. Navigate there?',
+    buttons: [{ label: 'Not now' }, { label: 'Navigate', primary: true, fn: () => {
+      waypoints = j.ahead.slice(0, -1).map((p, i) => ({ x: p[0], z: p[1], name: 'Game waypoint ' + (i + 1) }));
+      computeRoute(x, z, name, { announce: true, keepStops: true });
+    } }],
+  });
+}
+/** A name for a point: the company or ferry terminal there, else the nearest town. */
+function describePoint(x, z) {
+  const m = map, dist = (o) => Math.hypot(o.x - x, o.z - z);
+  const near = (list, r) => list.filter((o) => dist(o) < r).sort((a, b) => dist(a) - dist(b))[0] || null;
+  const co = near(m.companies, 300), port = near(m.pois.filter((p) => p.type === POI.FERRY || p.type === POI.TRAIN), 250);
+  const city = m.cities.reduce((b, c) => (!b || dist(c) < dist(b) ? c : b), null);
+  const cc = co ? m.findCity(co.cityId) : null, cityName = (cc && cc.name) || (city && city.name) || '';
+  // a port often has company yards next to it: name whichever of the two the point is nearer to
+  if (port && (!co || dist(port) < dist(co))) return (port.type === POI.TRAIN ? 'the car train terminal' : 'the ferry terminal') + (cityName ? ', ' + cityName : '');
+  if (co) return placeName(m.companyNames.get(co.id.toLowerCase()) || co.id, cityName);
+  return city && dist(city) < 4000 ? 'a point near ' + city.name : "the game's destination";
 }
 
 function checkNewJob(t) {
@@ -851,6 +927,9 @@ function showSettings() {
       fl.innerHTML = '<input type="checkbox" id="setFerries"' + (avoidFerries ? ' checked' : '') + '> Avoid ferries and car trains (some places may become unreachable)'; body.appendChild(fl);
       const clr = document.createElement('button'); clr.className = 'inline'; clr.textContent = 'Clear avoided roads (' + avoidPoints.length + ')';
       clr.onclick = () => { clearAvoid(); clr.textContent = 'Clear avoided roads (0)'; }; body.appendChild(clr);
+      const gg = document.createElement('label'); gg.style.marginTop = '8px';
+      gg.innerHTML = '<input type="checkbox" id="setGameGps"' + (followGameGps ? ' checked' : '') + "> When there is no job, offer to navigate to where the game's own GPS is set (needs the Windows app on the PC; seen after the game's next autosave or quick save)";
+      body.appendChild(gg);
       h('Voice');
       const vl = document.createElement('label'); vl.innerHTML = '<input type="checkbox" id="setVoice"' + (voice.enabled ? ' checked' : '') + '> Voice guidance'; body.appendChild(vl);
       ['Speak on this device', 'Speak on the PC (headset, via companion)', 'Speak on both'].forEach((t, i) => {
@@ -881,6 +960,7 @@ function saveSettings() {
   const sc = parseFloat(($('setScale') || {}).value);
   if (sc > 0) { simScale = sc; ls.set('scale', sc); }
   realDist = !!($('setReal') || {}).checked; ls.set('real', realDist);
+  if ($('setGameGps')) { followGameGps = $('setGameGps').checked; ls.set('gamegps', followGameGps); }
   distScale = realDist ? 1 : simScale; if (nav) nav.distScale = distScale;
   const vo = body.querySelector('input[name=vo]:checked');
   if (vo) { voice.output = parseInt(vo.value, 10); ls.set('voice_out', voice.output); }

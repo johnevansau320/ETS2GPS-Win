@@ -178,6 +178,7 @@ public sealed class Router
         Snap? best = null; float bestScore = float.MaxValue;
         m.QueryEdges(x, z, radius, e =>
         {
+            if (m.IsFerry(e)) return;   // a truck is never on a ferry link: at a port it would otherwise snap onto the crossing and route back over the sea
             int a = m.EPtStart[e], b = m.EPtStart[e + 1];
             float cum = 0f;
             for (int p = a; p < b - 1; p++)

@@ -394,6 +394,9 @@ public sealed partial class MainWindow
         sp.Children.Add(H("Lane guidance"));
         var showLanes = new CheckBox { Content = new TextBlock { Text = "Show lane guidance (the lane panel on the map and in the lane overlay window)", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.ShowLanes, Foreground = Brushes.White };
         sp.Children.Add(showLanes);
+        sp.Children.Add(H("Game GPS destination"));
+        var gameGps = new CheckBox { Content = new TextBlock { Text = "When there is no job, offer to navigate to where the game's own GPS is set (read from your newest save after the game autosaves, or after a quick save). Saves are only read, never changed.", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.FollowGameGps, Foreground = Brushes.White };
+        sp.Children.Add(gameGps);
         sp.Children.Add(H("Lane overlay window"));
         var ovAuto = new CheckBox { Content = new TextBlock { Text = "Start the lane overlay when this app starts (if it is not already running)", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.OverlayAutoStart, Foreground = Brushes.White };
         sp.Children.Add(ovAuto);
@@ -435,7 +438,7 @@ public sealed partial class MainWindow
         sp.Children.Add(vcOn);
         sp.Children.Add(new TextBlock { Text = "Wake word (one or two simple words, default GPS)", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0) });
         var vcWake = Box(cfg.VoiceWake); vcWake.Width = 160; vcWake.HorizontalAlignment = HorizontalAlignment.Left; sp.Children.Add(vcWake);
-        sp.Children.Add(new TextBlock { Text = "Commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer, take the job, show job info, show the map, cancel the route, back to my route, how far, when do I arrive, what is next, speed limit, fuel level, lane guidance / cruise assist / voice guidance on or off.", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
+        sp.Children.Add(new TextBlock { Text = "Commands: nearest fuel station / rest area / service centre / weigh station / garage / truck dealer, take the job (or not now when a new job is offered), follow the game route, show job info, show the map, cancel the route, back to my route, how far, when do I arrive, what is next, speed limit, fuel level, lane guidance / cruise assist / voice guidance on or off.", Foreground = Ui.Dim, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
 
         sp.Children.Add(H("Updates"));
         var updAuto = new CheckBox { Content = new TextBlock { Text = "Look for new versions automatically (about once a day; nothing is downloaded or installed)", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.CheckUpdates, Foreground = Brushes.White };
@@ -491,6 +494,7 @@ public sealed partial class MainWindow
             bool vcChanged = (vcOn.IsChecked == true) != cfg.VoiceControl || vcWake.Text.Trim() != cfg.VoiceWake;
             cfg.VoiceControl = vcOn.IsChecked == true; cfg.VoiceWake = vcWake.Text.Trim().Length > 0 ? vcWake.Text.Trim() : "GPS";
             cfg.ShowLanes = showLanes.IsChecked == true; if (!cfg.ShowLanes) SetLaneUi(null);
+            cfg.FollowGameGps = gameGps.IsChecked == true;
             cfg.OverlayAutoStart = ovAuto.IsChecked == true; cfg.OverlayPath = ovPath.Text.Trim();
             voice.Enabled = voiceOn.IsChecked == true; cfg.VoiceOn = voice.Enabled; UpdateVoiceButton();
             cfg.VoiceName = combo.SelectedIndex > 0 ? voices[combo.SelectedIndex - 1] : ""; cfg.VoiceRate = (int)rate.Value;

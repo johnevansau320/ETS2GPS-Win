@@ -23,6 +23,7 @@ public static class MapService
     public static string MapPath => Path.Combine(AppSettings.Dir, "etsmap.bin");
     public static string MetaPath => Path.Combine(AppSettings.Dir, "etsmap.meta.json");
     public static string AssetsPath => Path.Combine(AppSettings.Dir, "etsassets.bin");
+    public static string DropsPath => Path.Combine(AppSettings.Dir, "etsmap.drops.json");
     public static string LogPath => Path.Combine(AppSettings.Dir, "map_build.log");
 
     public static MapMeta? ReadMeta()
@@ -79,7 +80,7 @@ public static class MapService
             {
                 int pct = (int)(frac * 100);
                 if (pct != lastPct) { lastPct = pct; progress.Report($"{text} {pct}%"); }
-            }, AssetsPath);
+            }, AssetsPath, DropsPath);
             File.Move(tmp, MapPath, true);
             File.WriteAllText(MetaPath, JsonSerializer.Serialize(new MapMeta
             {
@@ -87,6 +88,12 @@ public static class MapService
             }));
         });
         progress.Report("Loading the map…");
-        return await Task.Run(() => MapData.Load(MapPath));
+        return await Task.Run(() =>
+        {
+            var map = MapData.Load(MapPath);
+            try { map.Drops = CompanyDrops.Index(System.Text.Json.JsonSerializer.Deserialize<List<CompanyDrops>>(File.ReadAllText(DropsPath)) ?? new()); }
+            catch { /* no drop-off points yet (map built by an older version): job routes end at the company as before */ }
+            return map;
+        });
     }
 }

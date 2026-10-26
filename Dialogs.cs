@@ -81,8 +81,22 @@ public static class Dlg
             if (w.SizeToContent == SizeToContent.Manual) w.Height *= s;
             w.MaxHeight = SystemParameters.WorkArea.Height;
         }
-        w.ShowDialog();
+        var outer = open; open = w;
+        try { w.ShowDialog(); } finally { open = outer; }
         (w.Tag as Action)?.Invoke();
+    }
+
+    static Window? open;
+
+    /// <summary>True while one of these dialogs is on screen.</summary>
+    public static bool IsOpen => open != null;
+
+    /// <summary>Closes the dialog on screen (for voice control), as if a button doing <paramref name="then"/> had been pressed.</summary>
+    public static bool CloseOpen(Action? then = null)
+    {
+        if (open == null) return false;
+        open.Tag = then; open.Close();
+        return true;
     }
 
     /// <summary>A list to pick from; picking closes the dialog and calls onPick(index).</summary>

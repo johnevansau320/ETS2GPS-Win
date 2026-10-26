@@ -103,6 +103,9 @@ public static class GameControls
 
     // ------------------------------------------------------------------------ finding the file --
 
+    /// <summary>The folder of the profile the game used last (where its saves are), or null.</summary>
+    public static string? ProfileDir() { try { var f = FindControlsFile(); return f == null ? null : Path.GetDirectoryName(f); } catch { return null; } }
+
     static readonly Regex ProfilePath = new(@"/home/(profiles|steam_profiles)/([0-9A-Fa-f]+)/", RegexOptions.Compiled);
 
     /// <summary>The controls.sii of the profile the game used last (named in game.log.txt), else the most recently changed one.</summary>

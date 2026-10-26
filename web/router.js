@@ -185,6 +185,8 @@ class Router {
     const m = this.map;
     let best = null, bestScore = Infinity;
     m.queryEdges(x, z, radius, (e) => {
+      // a truck is never on a ferry link: at a port it would otherwise snap onto the crossing and route back over the sea
+      if (m.isFerry(e)) return;
       const a = m.ePtStart[e], b = m.ePtStart[e + 1];
       let cum = 0;
       for (let p = a; p < b - 1; p++) {
