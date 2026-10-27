@@ -55,7 +55,7 @@ public sealed class CruiseAssist
         if (burst >= 60) { pausedUntil = nowMs + 10000; burst = 0; return; }
         if (!GameInFront()) return;
         int dir = diff > 0 ? 1 : -1;
-        Tap(dir > 0 ? keyFaster!.Value : keySlower!.Value, dir > 0);
+        Tap(dir > 0 ? keyFaster!.Value : keySlower!.Value, dir > 0 ? "+" : "-");
         lastDir = dir; lastPress = nowMs; pressBefore = s.CruiseKmh; burst++;
     }
 
@@ -75,7 +75,8 @@ public sealed class CruiseAssist
 
     static readonly string? DryRun = Environment.GetEnvironmentVariable("ETS2_CRUISE_DRYRUN");   // test only: log the taps to this file instead of pressing keys
 
-    static bool GameInFront()
+    /// <summary>Is the game the window in front (key presses go to the window in front)?</summary>
+    internal static bool GameInFront()
     {
         if (DryRun != null) return true;
         try
@@ -89,9 +90,10 @@ public sealed class CruiseAssist
         catch { return false; }
     }
 
-    static void Tap(GameKey key, bool faster)
+    /// <summary>Presses and releases a key of the game (tag: what for, in the test log).</summary>
+    internal static void Tap(GameKey key, string tag)
     {
-        if (DryRun != null) { File.AppendAllText(DryRun, (faster ? "+" : "-") + " " + key.Name + " 0x" + key.Scan.ToString("X2") + (key.Extended ? "e" : "") + " " + Environment.TickCount64 + Environment.NewLine); return; }
+        if (DryRun != null) { File.AppendAllText(DryRun, tag + " " + key.Name + " 0x" + key.Scan.ToString("X2") + (key.Extended ? "e" : "") + " " + Environment.TickCount64 + Environment.NewLine); return; }
         uint ext = key.Extended ? 0x0001u : 0u;                                                                  // KEYEVENTF_EXTENDEDKEY
         var down = new INPUT { type = 1, ki = new KEYBDINPUT { wScan = key.Scan, dwFlags = 0x0008 | ext } };      // KEYEVENTF_SCANCODE
         var up = new INPUT { type = 1, ki = new KEYBDINPUT { wScan = key.Scan, dwFlags = 0x0008 | 0x0002 | ext } };   // ... | KEYEVENTF_KEYUP

@@ -38,7 +38,7 @@ public sealed partial class MainWindow : Window
 
     // UI parts
     readonly Border banner = new(), bottomBar = new(), laneHost = new(), altBox = new(), tripPage = new(), toastBox = new();
-    readonly GlyphControl bGlyph = new() { Width = 140, Height = 140 }, bThen = new() { Width = 92, Height = 92 };
+    readonly GlyphControl bGlyph = new() { Width = 140, Height = 140 }, bThen = new() { Width = 112, Height = 112 };
     readonly TextBlock bDist = Ui.Text("", 68, null, FontWeights.Bold), bWhat = Ui.Text("", 34), bMsg = Ui.Text("", 34);
     readonly TextBlock bJob1 = Ui.Text("", 30, null, FontWeights.Bold), bJob2 = Ui.Text("", 28);
     readonly Border bThenBox = new();
@@ -179,11 +179,14 @@ public sealed partial class MainWindow : Window
         Grid.SetColumn(job, 2); bg.Children.Add(job);
         var thenGrid = new Grid();
         thenGrid.Children.Add(bThen);
-        thenGrid.Children.Add(new TextBlock { Text = "then", FontSize = 20, Foreground = Ui.Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, -2, 0, 0) });
-        bThenBox.Child = thenGrid; bThenBox.Background = new SolidColorBrush(Color.FromArgb(120, 0, 0, 0)); bThenBox.CornerRadius = new CornerRadius(10);
-        bThenBox.Width = 112; bThenBox.Height = 112; bThenBox.Padding = new Thickness(8); bThenBox.Visibility = Visibility.Collapsed;
-        bThenBox.VerticalAlignment = VerticalAlignment.Bottom; bThenBox.Margin = new Thickness(0, 0, 0, 8);
-        Grid.SetColumn(bThenBox, 3); bg.Children.Add(bThenBox);
+        thenGrid.Children.Add(new TextBlock { Text = "then", FontSize = 20, Foreground = Ui.Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, -30, 0, 0) });
+        // the same green as the banner
+        bThenBox.Child = thenGrid; bThenBox.Background = new SolidColorBrush(Color.FromArgb(240, 18, 92, 58)); bThenBox.CornerRadius = new CornerRadius(10);
+        // the maneuver after the next one: under the next-turn glyph, on the map (clicks pass through to the menu below it)
+        bThenBox.Width = 136; bThenBox.Height = 160; bThenBox.Padding = new Thickness(12, 34, 12, 12); bThenBox.Visibility = Visibility.Collapsed;
+        bThenBox.HorizontalAlignment = HorizontalAlignment.Left; bThenBox.VerticalAlignment = VerticalAlignment.Top;
+        bThenBox.Margin = new Thickness(22, 184, 0, 0); bThenBox.IsHitTestVisible = false;
+        Panel.SetZIndex(bThenBox, 6);
         // window controls (there is no title bar): minimise, maximise, close
         var ctl = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 6, 8, 0) };
         foreach (var (glyph, act) in new (string, Action)[] { ("—", () => WindowState = WindowState.Minimized), ("☐", ToggleMaximize), ("✕", Close) })
@@ -202,6 +205,7 @@ public sealed partial class MainWindow : Window
         }; banner.Background = new SolidColorBrush(Color.FromArgb(240, 18, 92, 58)); banner.CornerRadius = new CornerRadius(14);
         banner.Height = 170; banner.Margin = new Thickness(8, 6, 8, 0); banner.VerticalAlignment = VerticalAlignment.Top;
         root.Children.Add(banner);
+        root.Children.Add(bThenBox);
 
         // ---- lane panel under the banner
         lanePanel.Height = LanePanel.PanelH; lanePanel.Width = 200;

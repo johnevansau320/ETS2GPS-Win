@@ -397,6 +397,9 @@ public sealed partial class MainWindow
         sp.Children.Add(H("Game GPS destination"));
         var gameGps = new CheckBox { Content = new TextBlock { Text = "When there is no job, offer to navigate to where the game's own GPS is set (read from your newest save after the game autosaves, or after a quick save). Saves are only read, never changed.", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.FollowGameGps, Foreground = Brushes.White };
         sp.Children.Add(gameGps);
+        var autoSave = new CheckBox { Content = new TextBlock { Text = "Quick-save automatically when the game's GPS gets a new destination and no job has started (for example a job with a pickup elsewhere), so the app sees it within seconds. " +
+            "It presses your quick-save key once, only while the game is in front; the game's quick-save slot is replaced.", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.AutoQuickSave, Foreground = Brushes.White, Margin = new Thickness(0, 4, 0, 0) };
+        sp.Children.Add(autoSave);
         sp.Children.Add(H("Lane overlay window"));
         var ovAuto = new CheckBox { Content = new TextBlock { Text = "Start the lane overlay when this app starts (if it is not already running)", TextWrapping = TextWrapping.Wrap }, IsChecked = cfg.OverlayAutoStart, Foreground = Brushes.White };
         sp.Children.Add(ovAuto);
@@ -495,6 +498,7 @@ public sealed partial class MainWindow
             cfg.VoiceControl = vcOn.IsChecked == true; cfg.VoiceWake = vcWake.Text.Trim().Length > 0 ? vcWake.Text.Trim() : "GPS";
             cfg.ShowLanes = showLanes.IsChecked == true; if (!cfg.ShowLanes) SetLaneUi(null);
             cfg.FollowGameGps = gameGps.IsChecked == true;
+            cfg.AutoQuickSave = autoSave.IsChecked == true;
             cfg.OverlayAutoStart = ovAuto.IsChecked == true; cfg.OverlayPath = ovPath.Text.Trim();
             voice.Enabled = voiceOn.IsChecked == true; cfg.VoiceOn = voice.Enabled; UpdateVoiceButton();
             cfg.VoiceName = combo.SelectedIndex > 0 ? voices[combo.SelectedIndex - 1] : ""; cfg.VoiceRate = (int)rate.Value;

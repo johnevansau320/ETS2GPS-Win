@@ -572,14 +572,14 @@ public sealed class MapControl : FrameworkElement
                 float dx = rl.X - cx, dz = rl.Z - cz;
                 if (dx > radius || dx < -radius || dz > radius || dz < -radius) continue;
                 var p = P(rl.X, rl.Z);
-                if ((tilted && p.Sc < 0.3) || p.X < -40 || p.X > W + 40 || p.Y < -20 || p.Y > H + 20) continue;
-                var ft = Text(rl.Text, 17, Brushes.White, true);
-                double bw = ft.Width + 12, bh = ft.Height + 2;
+                if ((tilted && p.Sc < 0.3) || p.X < -80 || p.X > W + 80 || p.Y < -40 || p.Y > H + 40) continue;
+                var ft = Text(rl.Text, 34, Brushes.White, true);
+                double bw = ft.Width + 24, bh = ft.Height + 4;
                 var box = new Rect(p.X - bw / 2, p.Y - bh / 2, bw, bh);
                 Scaled(p.X, p.Y, Fs(p.Sc), () =>
                 {
-                    dc.DrawRoundedRectangle(rl.Text.StartsWith('E') ? ShieldGreen : ShieldBlue, new Pen(Brushes.White, 1.6), box, 3, 3);
-                    dc.DrawText(ft, new Point(box.X + 6, box.Y + 1));
+                    dc.DrawRoundedRectangle(rl.Text.StartsWith('E') ? ShieldGreen : ShieldBlue, new Pen(Brushes.White, 3.2), box, 6, 6);
+                    dc.DrawText(ft, new Point(box.X + 12, box.Y + 2));
                 });
             }
         }

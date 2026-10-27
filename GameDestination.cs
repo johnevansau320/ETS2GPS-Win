@@ -13,6 +13,32 @@ public sealed partial class MainWindow
     string gameGpsOffered = "";                    // the destination already offered (not asked again until it changes)
     long gameGpsCheckMs = -100000;
     bool gameGpsBusy;
+    float gameNavM;                   // the game's own route length last seen (game metres; 0 = no route)
+    long quickSaveWantMs = -1;        // the game's route got a new destination at this time and the app has not seen it yet
+    long quickSaveDoneMs = -100000;
+    DateTime quickSaveWantUtc;
+
+    /// <summary>
+    /// A new destination on the game's GPS while no job has started (a job with a pickup elsewhere, or a point set on the game's map) only reaches the save at
+    /// the game's next autosave, minutes later. Like the TruckSim GPS server, press the player's quick-save key once (game in front, not paused) so it is
+    /// written now; the save is then read as usual.
+    /// </summary>
+    void CheckQuickSave(TruckState t, long now)
+    {
+        float navM = (t.Detail?.NavDistanceKm ?? 0f) * 1000f;
+        bool noJob = t.DestCityId.Length == 0;
+        // a new destination: the route appears, or its length jumps (more than 1 km and 10 %) rather than shrinking as you drive
+        if (noJob && navM > 0f && (gameNavM <= 0f || (MathF.Abs(navM - gameNavM) > 1000f && MathF.Abs(navM - gameNavM) > 0.1f * gameNavM)))
+        { quickSaveWantMs = now; quickSaveWantUtc = DateTime.UtcNow; }
+        gameNavM = navM;
+        if (!noJob || navM <= 0f || !cfg.FollowGameGps || !cfg.AutoQuickSave) { quickSaveWantMs = -1; return; }
+        if (quickSaveWantMs < 0 || now - quickSaveWantMs < 2000 || now - quickSaveDoneMs < 60000 || t.Paused || !CruiseAssist.GameInFront()) return;
+        if (GameGps.NewestSave() is { } s && s.Utc > quickSaveWantUtc) { quickSaveWantMs = -1; return; }   // the game has saved since: nothing to do
+        if (GameControls.QuickSaveKey() is not { } key) { quickSaveWantMs = -1; return; }   // no keyboard key for quick save in this profile
+        quickSaveWantMs = -1; quickSaveDoneMs = now;
+        CruiseAssist.Tap(key, "quicksave");
+        Toast($"Quick save ({key.Name}) so the app can read the game's new destination");
+    }
 
     /// <summary>Looks for a newer save every few seconds; force (voice "follow the game route") reads the newest save now and navigates without asking.</summary>
     void CheckGameGps(bool force = false)
@@ -21,6 +47,7 @@ public sealed partial class MainWindow
         if (map == null || gameGpsBusy || (!force && (!cfg.FollowGameGps || now - gameGpsCheckMs < 3000))) return;
         gameGpsCheckMs = now;
         var t = truck;
+        if (!force && t != null) CheckQuickSave(t, now);
         if (!force && (t == null || t.DestCityId.Length > 0)) return;   // on a job: the job route is used
         gameGpsBusy = true;
         Task.Run(() =>

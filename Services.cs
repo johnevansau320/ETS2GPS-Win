@@ -38,6 +38,7 @@ public sealed class AppSettings
     /// <summary>Show the lane guidance panel on the map (and in the lane overlay window).</summary>
     public bool ShowLanes { get; set; } = true;
     public bool FollowGameGps { get; set; } = true;   // offer to route to the game's GPS destination when there is no job
+    public bool AutoQuickSave { get; set; } = true;   // press the game's quick-save key when its GPS gets a new destination, so it is read straight away
     public bool VoiceOn { get; set; } = true;
     /// <summary>Listen on the microphone for spoken commands ("GPS, nearest fuel station"). Off by default; recognised on this PC, nothing is recorded or sent.</summary>
     public bool VoiceControl { get; set; } = false;

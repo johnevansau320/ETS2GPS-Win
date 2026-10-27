@@ -46,6 +46,7 @@ public static class GameControls
         A("uarrow", 0x48, "Up arrow", true); A("darrow", 0x50, "Down arrow", true); A("larrow", 0x4B, "Left arrow", true); A("rarrow", 0x4D, "Right arrow", true);
         A("home", 0x47, "Home", true); A("end", 0x4F, "End", true); A("pgup", 0x49, "Page Up", true); A("pgdn", 0x51, "Page Down", true);
         A("ins", 0x52, "Insert", true); A("del", 0x53, "Delete", true);
+        A("scrollock", 0x46, "Scroll Lock"); A("pause", 0x45, "Pause", true);
         return d;
     }
 
@@ -74,6 +75,25 @@ public static class GameControls
             return new Result(f, s, src, null);
         }
         catch { return Default; }
+    }
+
+    static readonly Regex QuickSaveLine = new(@"^\s*config_lines\[\d+\]:\s*""mix\s+quicksave\s+`(?<b>[^`]*)`""", RegexOptions.Compiled);
+
+    /// <summary>The player's key for "quick save" (the game's default is F5); null when it is bound to no plain keyboard key.</summary>
+    public static GameKey? QuickSaveKey()
+    {
+        try
+        {
+            var file = FindControlsFile();
+            if (file == null) return new GameKey(0x3F, false, "F5");
+            foreach (var line in File.ReadLines(file))
+            {
+                var m = QuickSaveLine.Match(line);
+                if (m.Success) return FirstKey(m.Groups["b"].Value);
+            }
+            return new GameKey(0x3F, false, "F5");
+        }
+        catch { return null; }
     }
 
     /// <summary>The first plain keyboard key in a binding such as "joy.b9?0 | keyboard.numplus?0 | semantical.cruiectrlinc?0" (keys that need a modifier are skipped).</summary>

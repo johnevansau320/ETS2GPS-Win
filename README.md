@@ -49,6 +49,12 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.10.0
+
+* **Automatic quick save**: when the game's GPS gets a new destination before a job has started (a job with a pickup elsewhere, or a point set on the game's map), the app presses your own quick-save key once, while the game is in front and not paused, so the destination is read within seconds instead of at the next autosave. Settings > Game GPS destination switches it off; the game's quick-save slot is replaced.
+* **The next turn after this one** is shown on the left, under the turn picture in the green bar, a little larger and in the same green.
+* **Road-number shields** on the map are twice as large.
+
 ## New in 1.9.0
 
 * **Drop-off flag**: a job route leads to the entrance of the company yard (where the game's own route reaches it) and the chequered flag stands on the **drop-off spot** inside, joined to the end of the route by a dashed line. The app tells you to follow the flag and announces *You have arrived at the drop off point* there. The drop-off spots (easy parking) come from the company yards in your game; the map is rebuilt once to add them.

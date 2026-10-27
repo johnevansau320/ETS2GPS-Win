@@ -220,7 +220,7 @@ function setManeuver(next, dist, what, then) {
   if (key !== lastManeuverKey) { lastManeuverKey = key; drawGlyphOn($('bGlyph'), next.turn, next.exitNo, next.angleDeg, 76); }
   const t = then && then.turn !== Turn.ARRIVE ? then : null;
   $('bThen').style.display = t ? 'block' : 'none';
-  if (t) { const c = $('bThenGlyph').getContext('2d'); c.clearRect(0, 0, 60, 60); Glyphs.draw(c, t.turn, t.exitNo, t.angleDeg, 30, 30, 52, '#fff'); }
+  if (t) { const c = $('bThenGlyph').getContext('2d'); c.clearRect(0, 0, 64, 64); Glyphs.draw(c, t.turn, t.exitNo, t.angleDeg, 32, 32, 58, '#fff'); }
 }
 function clearManeuver() { lastManeuverKey = ''; $('bDist').textContent = ''; $('bWhat').textContent = 'No route - tap Search, Job or long-press the map'; clearGlyph($('bGlyph')); $('bThen').style.display = 'none'; }
 function updateBannerJob() {
