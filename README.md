@@ -49,6 +49,13 @@ and port, distance scale. `Save + rebuild map` forces a new map build.
 
 Command line (testing): `--config file.json`, `--zoom <0.35..10>`, `--plan "Start|Stop|Destination"` (+ `--plan-save`, `--plan-dialog`, `--trips-dialog`, `--trips-export file`, `--trips-import file`), `--goto <city>`, `--trip`, `--build-map out.bin` (builds a map file and exits).
 
+## New in 1.10.1
+
+* **Roundabouts where traffic drives on the left** (UK, Ireland, Malta, Cyprus, Isle of Man, Channel Islands): exits are counted clockwise, so the spoken exit and the number in the turn picture match the route. They were counted anticlockwise as on the continent.
+* **Voice control** works with real voices through a desk microphone: a command is accepted when the wake word and at least one word of the command were clearly heard, instead of needing a high score for the whole sentence. *Computer* works well as a wake word if *GPS* is often missed (Settings > Voice control).
+* **Map badges** (fuel, rest areas, service centres ...) are 30% smaller.
+* `install.ps1` closes a running ETS2 GPS before replacing it and starts it again afterwards.
+
 ## New in 1.10.0
 
 * **Automatic quick save**: when the game's GPS gets a new destination before a job has started (a job with a pickup elsewhere, or a point set on the game's map), the app presses your own quick-save key once, while the game is in front and not paused, so the destination is read within seconds instead of at the next autosave. Settings > Game GPS destination switches it off; the game's quick-save slot is replaced.

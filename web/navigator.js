@@ -127,6 +127,17 @@ class Navigator {
     return result;
   }
 
+  // Does traffic go round this roundabout prefab clockwise? The paths through it get longer exit by exit, so when their lengths line up with
+  // the exits taken in one direction, that is the answer; otherwise it goes by the side of the road the country drives on (left: clockwise).
+  clockwise(entry, alts) {
+    const m = this.map, ids = (l) => l.map((a) => a[0]).join(',');
+    const byLen = ids(alts.slice().sort((a, b) => m.eLen[a[0] >> 1] - m.eLen[b[0] >> 1]));
+    if (byLen === ids(alts.slice().sort((a, b) => a[1] - b[1]))) return true;
+    if (byLen === ids(alts.slice().sort((a, b) => b[1] - a[1]))) return false;
+    const cc = (m.countryAt(m.nodeX[entry], m.nodeZ[entry]) || '').toLowerCase();
+    return ['gb', 'uk', 'ie', 'mt', 'cy', 'im', 'gg', 'je'].includes(cc);
+  }
+
   // ------------------------------------------------------- roundabouts made of ordinary roads --
   // Many roundabouts are not one prefab: they are a ring of short curved road pieces (and small junction pieces) that the router sees as a
   // closed loop of directed edges: at most 14 edges, 80 to 260 m around, curving the same way for about one full turn.
@@ -238,7 +249,7 @@ class Navigator {
       const x = m.deX(de, 0), z = m.deZ(de, 0);
       const mk = (turn, exitNo) => ({ turn, atM: cum[k], exitNo, angleDeg: angle, x, z, towards: null, lanes: null });
       if (this.isRoundabout(jid, entry, alts)) {
-        const sorted = alts.slice().sort((a, b) => b[1] - a[1]);
+        const sorted = alts.slice().sort(this.clockwise(entry, alts) ? (a, b) => a[1] - b[1] : (a, b) => b[1] - a[1]);
         const no = sorted.findIndex((a) => a[0] === de) + 1;
         out.push(mk(Turn.ROUNDABOUT, no));
         continue;

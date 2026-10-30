@@ -184,6 +184,19 @@ public sealed class Navigator
         return result;
     }
 
+    // Countries that drive on the left: their roundabouts go round clockwise, so the 1st exit is the leftmost one, not the rightmost.
+    static readonly HashSet<string> LeftHandTraffic = new(StringComparer.OrdinalIgnoreCase) { "gb", "uk", "ie", "mt", "cy", "im", "gg", "je" };
+
+    /// <summary>Does traffic go round this roundabout prefab clockwise? The paths through it get longer exit by exit, so when their lengths line
+    /// up with the exits taken in one direction, that is the answer; otherwise it goes by the side of the road the country drives on.</summary>
+    bool Clockwise(int entry, List<(int De, float Angle)> alts)
+    {
+        var byLen = alts.OrderBy(a => map.ELen[a.De >> 1]).Select(a => a.De).ToList();
+        if (byLen.SequenceEqual(alts.OrderBy(a => a.Angle).Select(a => a.De))) return true;
+        if (byLen.SequenceEqual(alts.OrderByDescending(a => a.Angle).Select(a => a.De))) return false;
+        return map.CountryAt(map.NodeX[entry], map.NodeZ[entry]) is string cc && LeftHandTraffic.Contains(cc);
+    }
+
     // ------------------------------------------------------------------------ roundabouts made of ordinary roads --
     // Many roundabouts are not one prefab: they are a ring of short curved road pieces (and small junction pieces) that the router
     // sees as a closed loop of directed edges. A ring is a closed loop of at most 14 edges, 80 to 260 m around, that keeps curving
@@ -315,7 +328,7 @@ public sealed class Navigator
             Maneuver Mk(Turn t, int exitNo) => new() { Turn = t, AtM = cum[k], ExitNo = exitNo, AngleDeg = angle, X = x, Z = z, Jid = jid };
             if (IsRoundabout(jid, entry, alts))
             {
-                var sorted = alts.OrderByDescending(a => a.Angle).ToList();
+                var sorted = Clockwise(entry, alts) ? alts.OrderBy(a => a.Angle).ToList() : alts.OrderByDescending(a => a.Angle).ToList();
                 int no = sorted.FindIndex(a => a.De == de) + 1;
                 outList.Add(Mk(Turn.Roundabout, no));
                 continue;

@@ -611,7 +611,7 @@ public sealed class MapControl : FrameworkElement
         }
         if (zoom > 0.3)
         {
-            double r = (zoom > 0.8 ? 24 : 18) * 2.5;   // badges are 2.5x the size of the web and Android ones
+            double r = (zoom > 0.8 ? 24 : 18) * 1.75;   // badges are 1.75x the size of the web and Android ones
             foreach (var poi in m.Pois)
             {
                 if (!ShowPoiTypes.Contains(poi.Type)) continue;

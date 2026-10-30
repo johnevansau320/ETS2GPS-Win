@@ -1,4 +1,4 @@
-﻿# Installs ETS2 GPS for the current user (no administrator rights): copies the exe to %LOCALAPPDATA%\Programs\ETS2 GPS
+# Installs ETS2 GPS for the current user (no administrator rights): copies the exe to %LOCALAPPDATA%\Programs\ETS2 GPS
 # and adds a Start Menu shortcut. Asks whether to start it with Windows and whether to start it now;
 # use -NoPrompt to skip the questions, -Autostart / -Start to answer yes without being asked.
 param([switch]$Autostart, [switch]$Start, [switch]$NoPrompt)
@@ -18,8 +18,13 @@ function Install-File($from, $toDir) {
     if ((Get-FileHash $from).Hash -ne (Get-FileHash $tmp).Hash) { Remove-Item $tmp -Force; throw "Copy of $from did not verify" }
     Move-Item $tmp $to -Force
 }
-Install-File $exe $dir
 $target = Join-Path $dir "Ets2Gps.exe"
+# a running copy locks its file: close it (it saves its settings on closing), install, and start it again afterwards
+$wasRunning = @(Get-Process Ets2Gps -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $target })
+foreach ($p in $wasRunning) { try { $p.CloseMainWindow() | Out-Null } catch { } }
+foreach ($p in $wasRunning) { if (-not $p.WaitForExit(8000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }
+if ($wasRunning.Count -gt 0) { Start-Sleep -Milliseconds 500 }
+Install-File $exe $dir
 $sh = New-Object -ComObject WScript.Shell
 function Shortcut($path) { $s = $sh.CreateShortcut($path); $s.TargetPath = $target; $s.WorkingDirectory = $dir; $s.Description = "ETS2 GPS"; $s.Save() }
 Shortcut (Join-Path ([Environment]::GetFolderPath("Programs")) "ETS2 GPS.lnk")
@@ -47,3 +52,6 @@ if (Test-Path $ov) {
     Install-File $ov $odir
     Write-Host "Lane overlay installed to $odir"
 }
+
+# started again only now, so that it starts the newly installed lane overlay as well
+if ($wasRunning.Count -gt 0 -and -not $Start) { Start-Process $target; Write-Host "ETS2 GPS was running: closed for the update and started again." }

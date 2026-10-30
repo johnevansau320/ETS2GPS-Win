@@ -10,10 +10,16 @@ namespace Ets2Gps;
 /// </summary>
 public sealed class VoiceControl : IDisposable
 {
-    /// <summary>Recognitions below this confidence are ignored.</summary>
-    public const float MinConfidence = 0.72f;
-    /// <summary>The wake word itself must be heard at least this well (a recognizer-invented one scores 0.00).</summary>
-    public const float MinWakeConfidence = 0.55f;
+    // Measured with a real voice through a desk microphone, the recognizer gets the words right but its confidence jumps about: short words
+    // ("how", "is", "it") often score near 0 and the overall score of correct commands ranged 0.4 - 0.75. A result is therefore judged by its strongest
+    // words: the wake word must really have been heard (one that the recognizer invents to fit ordinary speech into a command scores about 0) and at least
+    // one word of the command must be clear.
+    /// <summary>Recognitions below this overall confidence are ignored.</summary>
+    public const float MinConfidence = 0.35f;
+    /// <summary>The best-heard word of the wake word must reach this.</summary>
+    public const float MinWakeConfidence = 0.3f;
+    /// <summary>The best-heard word of the command must reach this.</summary>
+    public const float MinCommandConfidence = 0.6f;
 
     SpeechRecognitionEngine? engine;
     readonly Func<bool> muted;
@@ -63,6 +69,24 @@ public sealed class VoiceControl : IDisposable
         ("voice:off", new[] { "turn voice guidance off", "voice guidance off", "mute voice guidance" }),
         ("help", new[] { "help", "what can I say", "voice commands", "list the voice commands" }),
     };
+
+    /// <summary>Is the recognition sure enough to act on? (overall confidence, and the best-heard words of the wake word and of the command)</summary>
+    public static bool Accept(RecognitionResult r, string wake, out float commandConfidence) => Accept(r, wake, out commandConfidence, out _);
+
+    /// <summary>As above, also giving the confidence of the best-heard wake word.</summary>
+    public static bool Accept(RecognitionResult r, string wake, out float commandConfidence, out float wakeConfidence)
+    {
+        commandConfidence = 0f; wakeConfidence = 0f;
+        if (r.Words.Count == 0) return false;
+        // the wake word part: the longest wake variant the recognized text starts with
+        int skip = 0;
+        foreach (var v in WakeVariants(wake))
+            if (r.Text.StartsWith(v + " ", StringComparison.OrdinalIgnoreCase)) skip = Math.Max(skip, v.Split(' ').Length);
+        if (skip == 0 || skip >= r.Words.Count) return false;
+        for (int i = 0; i < skip; i++) wakeConfidence = Math.Max(wakeConfidence, r.Words[i].Confidence);
+        for (int i = skip; i < r.Words.Count; i++) commandConfidence = Math.Max(commandConfidence, r.Words[i].Confidence);
+        return r.Confidence >= MinConfidence && wakeConfidence >= MinWakeConfidence && commandConfidence >= MinCommandConfidence;
+    }
 
     /// <summary>What the wake word may sound like to the recognizer ("GPS" is also tried spelled out).</summary>
     static string[] WakeVariants(string wake)
@@ -120,7 +144,7 @@ public sealed class VoiceControl : IDisposable
     {
         try
         {
-            if (muted() || e.Result.Confidence < MinConfidence || e.Result.Words.Count == 0 || e.Result.Words[0].Confidence < MinWakeConfidence) return;
+            if (muted() || !Accept(e.Result, Wake, out _)) return;
             if (e.Result.Semantics.ContainsKey("cmd") && e.Result.Semantics["cmd"].Value is string key) Command?.Invoke(key, e.Result.Text, e.Result.Confidence);
         }
         catch { /* a bad result must never stop the listener */ }
